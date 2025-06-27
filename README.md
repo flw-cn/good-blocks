@@ -1,6 +1,6 @@
 # good-blocks
 
-> **「good blocks 总比 bad blocks 要好」** 😉  
+> **「good blocks 总比 bad blocks 要好」** 😉
 > *致敬经典的 badblocks，但我们相信硬盘健康不只是好坏二分*
 
 一个安全、直观的硬盘健康检测工具，专为普通用户设计。
@@ -26,7 +26,7 @@
 根据设备类型自动生成适合的性能分类：
 
 **SSD/NVMe 设备**：
-- 极佳 (≤1ms) 
+- 极佳 (≤1ms)
 - 优秀 (≤3ms)
 - 良好 (≤5ms)
 - 正常 (≤10ms)
@@ -36,7 +36,7 @@
 
 **机械硬盘**：
 - 优秀 (≤8ms)
-- 良好 (≤15ms) 
+- 良好 (≤15ms)
 - 正常 (≤25ms)
 - 偏慢 (≤50ms)
 - 较慢 (≤100ms)
@@ -69,7 +69,7 @@
 ### 编译方法
 
 ```bash
-gcc -o good-blocks main.c -lm
+make
 ```
 
 ## 使用方法
@@ -197,7 +197,7 @@ gcc -o good-blocks main.c -lm
 
 本程序 99% 由 AI 生成，感谢 Gemini、DeepSeek、Claude Sonnet 4、GitHub Copilot。
 
-当然，最后那 1% 才是最关键的。
+当然，最后那 1% 才是关键。
 
 ## 许可证
 
