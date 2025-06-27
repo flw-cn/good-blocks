@@ -94,7 +94,7 @@ void print_category_definitions(TimeCategory *cats, int count) {
 
 // 日志记录函数
 void log_block(FILE *logfile, unsigned long block, unsigned long sector_offset,
-               size_t block_size, int sectors_per_block,
+               size_t block_size __attribute__((unused)), int sectors_per_block,
                long elapsed, const char *status) {
     time_t now = time(NULL);
     struct tm *t = localtime(&now);
@@ -531,7 +531,7 @@ int detect_device_type(const char *device_path, DeviceTypeInfo *info) {
             char *end = start + strlen(start) - 1;
             while (end > start && isspace(*end)) *end-- = '\0';
             if (strlen(start) > 0) {
-                strncpy(info->model, start, sizeof(info->model) - 1);
+                snprintf(info->model, sizeof(info->model), "%s", start);
             }
         }
         fclose(file);
@@ -548,7 +548,7 @@ int detect_device_type(const char *device_path, DeviceTypeInfo *info) {
             char *end = start + strlen(start) - 1;
             while (end > start && isspace(*end)) *end-- = '\0';
             if (strlen(start) > 0) {
-                strncpy(info->vendor, start, sizeof(info->vendor) - 1);
+                snprintf(info->vendor, sizeof(info->vendor), "%s", start);
             }
         }
         fclose(file);

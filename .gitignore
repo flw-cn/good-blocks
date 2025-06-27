@@ -1,0 +1,50 @@
+# 编译生成的文件
+*.o
+*.ko
+*.obj
+*.elf
+*.ilk
+*.map
+*.exp
+*.gch
+*.pch
+*.so
+*.so.*
+*.dylib
+*.dll
+*.a
+*.la
+*.lo
+*.lib
+
+# 可执行文件
+good-blocks
+*.exe
+*.out
+*.app
+
+# 调试文件
+*.dSYM/
+*.su
+*.idb
+*.pdb
+
+# 内核模块编译产物
+*.mod*
+*.cmd
+.tmp_versions/
+modules.order
+Module.symvers
+Mkfile.old
+dkms.conf
+
+# 编辑器和IDE临时文件
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+
+# 日志和临时文件
+*.log
+*.tmp
