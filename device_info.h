@@ -2,62 +2,54 @@
 #ifndef DEVICE_INFO_H
 #define DEVICE_INFO_H
 
-#include <stddef.h> // For size_t
-#include <limits.h> // For PATH_MAX
+#define MAX_DEV_PATH_LEN 32
+#define MAX_DEV_NAME_LEN 16
+#define MAX_MODEL_LEN 64
+#define MAX_VENDOR_LEN 32
+#define MAX_SERIAL_LEN 32
+#define MAX_FW_REV_LEN 16
+#define MAX_FULL_PATH_LEN 256
+// Define MAX_NOMINAL_CAPACITY_LEN to hold strings like "16.0 TB" or "1.02 TB"
+#define MAX_NOMINAL_CAPACITY_LEN 16
 
-#ifndef PATH_MAX
-#define PATH_MAX 4096
-#endif
-#define MAX_BUFFER_LEN 128 // Ensure this is defined appropriately
+typedef enum {
+    BUS_TYPE_UNKNOWN,
+    BUS_TYPE_ATA,       // Includes SATA and PATA
+    BUS_TYPE_SCSI,      // Includes SAS and USB-SCSI bridges
+    BUS_TYPE_USB,
+    BUS_TYPE_NVME,
+    BUS_TYPE_MMC,
+    BUS_TYPE_VIRTIO
+} BusType;
 
-// Device type enum
 typedef enum {
     DEVICE_TYPE_UNKNOWN,
     DEVICE_TYPE_HDD,
     DEVICE_TYPE_SATA_SSD,
     DEVICE_TYPE_NVME_SSD,
-    DEVICE_TYPE_USB_STORAGE
+    DEVICE_TYPE_USB_STORAGE,
+    DEVICE_TYPE_UNKNOWN_SSD // For SSDs that aren't SATA or NVME (e.g., some SCSI SSDs)
 } DeviceType;
 
-// Bus type enum
-typedef enum {
-    BUS_TYPE_UNKNOWN,
-    BUS_TYPE_ATA,   // Includes SATA and PATA (IDE)
-    BUS_TYPE_SCSI,  // Includes SAS
-    BUS_TYPE_USB,
-    BUS_TYPE_NVME,
-    BUS_TYPE_MMC,   // For SD cards, eMMC
-    BUS_TYPE_VIRTIO // For virtual machines
-} BusType;
-
-
-// DeviceInfo structure
 typedef struct {
-    char dev_path[PATH_MAX];       // e.g., /dev/sda, /dev/nvme0n1p5
-    char main_dev_name[MAX_BUFFER_LEN]; // e.g., sda, nvme0n1
-
-    DeviceType type;               // Detected device type (HDD, SSD, USB)
-    BusType bus_type;              // Detected bus interface (ATA, USB, NVMe, etc.)
-
-    // Common attributes
-    unsigned long long total_sectors; // Total sectors (from sysfs)
-    unsigned long long logical_block_size; // Logical sector size (from sysfs)
-    unsigned long long physical_block_size; // Physical sector size (from sysfs)
-    double capacity_gb;            // Total capacity in GB (calculated)
-
-    char model[MAX_BUFFER_LEN];    // Model string
-    char vendor[MAX_BUFFER_LEN];   // Vendor string
-    char serial[MAX_BUFFER_LEN];   // Serial number
-    char firmware_rev[MAX_BUFFER_LEN]; // Firmware revision
-
-    // HDD specific
-    // char rotation_rate[MAX_BUFFER_LEN]; // Old: RPM (from smartctl for HDD)
-    int rotation_rate_rpm;           // New: RPM as an integer (from smartctl for HDD)
-    
+    char dev_path[MAX_DEV_PATH_LEN];        // e.g., /dev/sda
+    char main_dev_name[MAX_DEV_NAME_LEN];   // e.g., sda
+    DeviceType type;
+    BusType bus_type;
+    double capacity_gb;                     // Calculated from total_sectors * logical_block_size
+    unsigned long long total_sectors;
+    unsigned int logical_block_size;
+    unsigned int physical_block_size;
+    char model[MAX_MODEL_LEN];
+    char vendor[MAX_VENDOR_LEN];
+    char serial[MAX_SERIAL_LEN];
+    char firmware_rev[MAX_FW_REV_LEN];
+    int rotation_rate_rpm;                  // 0 for SSDs
+    char nominal_capacity_str[MAX_NOMINAL_CAPACITY_LEN]; // New: e.g., "16.0 TB" or "1.02 TB"
 } DeviceInfo;
 
 // Function prototypes
-void init_device_info(DeviceInfo* info);
+void initialize_device_info(DeviceInfo* info, const char* dev_path);
 void print_device_info(const DeviceInfo* info);
 
 #endif // DEVICE_INFO_H

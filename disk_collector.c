@@ -10,6 +10,8 @@
 #include <sys/sysmacros.h>
 #include <libgen.h>
 #include <ctype.h>
+#include <stdarg.h> // Needed for va_list in get_string_from_output
+
 
 // Path max and buffer len defines (ensure consistent with device_info.h)
 #ifndef PATH_MAX
@@ -194,7 +196,7 @@ char* get_string_from_output(const char* output_str, const char* key_prefix_form
                 
                 char* value_end = value_start;
                 // For general strings, allow alphanumeric, punctuation, and spaces.
-                while (*value_end && *value_end != '\n' && (isalnum(*value_end) || ispunct(*value_end) || isspace(*value_end))) {
+                while (*value_end && *value_end != '\n' && (isalnum(*value_end) || ispunct(*value_end) || isspace(*value_end) || *value_end == '[' || *value_end == ']')) {
                     value_end++;
                 }
                 // Remove trailing spaces
@@ -359,7 +361,12 @@ void populate_device_info_from_sysfs(DeviceInfo* info) {
     } else if (info->bus_type == BUS_TYPE_USB) {
         info->type = DEVICE_TYPE_USB_STORAGE;
     } else if (rotational_str && strcmp(rotational_str, "0") == 0) {
-        info->type = DEVICE_TYPE_SATA_SSD;
+        // If bus type is ATA/SCSI/UNKNOWN and rotational is 0, it's an SSD
+        if (info->bus_type == BUS_TYPE_ATA || info->bus_type == BUS_TYPE_UNKNOWN) {
+             info->type = DEVICE_TYPE_SATA_SSD;
+        } else { // Could be a SCSI SSD or other unknown SSD type
+            info->type = DEVICE_TYPE_UNKNOWN_SSD;
+        }
     } else if (rotational_str && strcmp(rotational_str, "1") == 0) {
         info->type = DEVICE_TYPE_HDD;
     } else {
@@ -464,7 +471,6 @@ void populate_device_info_from_smartctl_output(DeviceInfo* info, const char* sma
         }
     }
 
-    // *** IMPORTANT CHANGE HERE FOR VENDOR ***
     // Always attempt to get Vendor from smartctl, and if successful, overwrite previous
     // This is because smartctl's Model Family is typically the most accurate vendor info.
     char* model_family = get_string_from_output(smartctl_output, "Model Family:", NULL);
@@ -524,6 +530,70 @@ void populate_device_info_from_smartctl_output(DeviceInfo* info, const char* sma
                     info->bus_type = BUS_TYPE_ATA;
                 }
                 free(ata_version_str);
+            }
+        }
+    }
+
+    // --- New: Populate nominal_capacity_str from smartctl output ---
+    // Look for User Capacity (for ATA/SATA devices)
+    char* user_capacity_str = get_string_from_output(smartctl_output, "User Capacity:", NULL);
+    if (user_capacity_str) {
+        // Example: "16,000,900,661,248 bytes [16.0 TB]" -> extract "[16.0 TB]"
+        char* bracket_start = strchr(user_capacity_str, '[');
+        if (bracket_start) {
+            char* bracket_end = strchr(bracket_start, ']');
+            if (bracket_end) {
+                size_t len = bracket_end - bracket_start + 1; // Include brackets
+                if (len < sizeof(info->nominal_capacity_str)) {
+                    strncpy(info->nominal_capacity_str, bracket_start, len);
+                    info->nominal_capacity_str[len] = '\0';
+                } else {
+                    strncpy(info->nominal_capacity_str, bracket_start, sizeof(info->nominal_capacity_str) - 1);
+                    info->nominal_capacity_str[sizeof(info->nominal_capacity_str) - 1] = '\0';
+                }
+            }
+        }
+        free(user_capacity_str);
+    } else {
+        // If not User Capacity, look for Total NVM Capacity (for NVMe devices)
+        char* nvm_capacity_str = get_string_from_output(smartctl_output, "Total NVM Capacity:", NULL);
+        if (nvm_capacity_str) {
+             // Example: "1,024,209,543,168 [1.02 TB]" -> extract "[1.02 TB]"
+            char* bracket_start = strchr(nvm_capacity_str, '[');
+            if (bracket_start) {
+                char* bracket_end = strchr(bracket_start, ']');
+                if (bracket_end) {
+                    size_t len = bracket_end - bracket_start + 1; // Include brackets
+                     if (len < sizeof(info->nominal_capacity_str)) {
+                        strncpy(info->nominal_capacity_str, bracket_start, len);
+                        info->nominal_capacity_str[len] = '\0';
+                    } else {
+                        strncpy(info->nominal_capacity_str, bracket_start, sizeof(info->nominal_capacity_str) - 1);
+                        info->nominal_capacity_str[sizeof(info->nominal_capacity_str) - 1] = '\0';
+                    }
+                }
+            }
+            free(nvm_capacity_str);
+        } else {
+            // Fallback for NVMe Namespace Capacity if Total NVM Capacity isn't present
+            char* namespace_capacity_str = get_string_from_output(smartctl_output, "Namespace 1 Size/Capacity:", NULL);
+            if (namespace_capacity_str) {
+                 // Example: "1,024,209,543,168 [1.02 TB]" -> extract "[1.02 TB]"
+                char* bracket_start = strchr(namespace_capacity_str, '[');
+                if (bracket_start) {
+                    char* bracket_end = strchr(bracket_start, ']');
+                    if (bracket_end) {
+                        size_t len = bracket_end - bracket_start + 1; // Include brackets
+                        if (len < sizeof(info->nominal_capacity_str)) {
+                            strncpy(info->nominal_capacity_str, bracket_start, len);
+                            info->nominal_capacity_str[len] = '\0';
+                        } else {
+                            strncpy(info->nominal_capacity_str, bracket_start, sizeof(info->nominal_capacity_str) - 1);
+                            info->nominal_capacity_str[sizeof(info->nominal_capacity_str) - 1] = '\0';
+                        }
+                    }
+                }
+                free(namespace_capacity_str);
             }
         }
     }
