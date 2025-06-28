@@ -8,9 +8,9 @@
 #define MAX_VENDOR_LEN 32
 #define MAX_SERIAL_LEN 32
 #define MAX_FW_REV_LEN 16
-// INCREASE MAX_FULL_PATH_LEN to mitigate snprintf truncation warnings
-#define MAX_FULL_PATH_LEN 512 
-#define MAX_NOMINAL_CAPACITY_LEN 16 
+// Increase MAX_FULL_PATH_LEN again to definitively resolve snprintf truncation warnings
+#define MAX_FULL_PATH_LEN 1024 
+#define MAX_NOMINAL_CAPACITY_LEN 16
 
 typedef enum {
     BUS_TYPE_UNKNOWN,
