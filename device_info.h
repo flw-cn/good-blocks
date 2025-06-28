@@ -54,13 +54,10 @@ typedef struct {
     // HDD specific
     char rotation_rate[MAX_BUFFER_LEN]; // RPM (from smartctl for HDD)
     
-    // Add flags if needed to track if a field was found, e.g. for optional display.
-    // For this version, if a string field is empty, it means not found.
-
 } DeviceInfo;
 
 // Function prototypes
 void init_device_info(DeviceInfo* info);
 void print_device_info(const DeviceInfo* info);
 
-#endif // DEVICE_INFO_H
+#endif // DEVICE_INFO_Hendif // DEVICE_INFO_H
