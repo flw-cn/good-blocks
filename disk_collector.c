@@ -256,7 +256,7 @@ void populate_device_info_from_udevadm(DeviceInfo* info) {
                 else info->bus_type = BUS_TYPE_UNKNOWN;
             } else if (strcmp(key, "ID_MODEL") == 0) {
                 strncpy(info->model, value, sizeof(info->model)-1);
-            } else if (strcmp(key, "ID_VENDOR_FROM_DATABASE") == 0) { // More specific vendor
+            } else if (strcmp(key, "ID_VENDOR_FROM_DATABASE") == 0) { // More specific vendor from udev database
                 strncpy(info->vendor, value, sizeof(info->vendor)-1);
             } else if (strcmp(key, "ID_VENDOR") == 0 && strlen(info->vendor) == 0) { // Fallback vendor
                 strncpy(info->vendor, value, sizeof(info->vendor)-1);
@@ -268,6 +268,22 @@ void populate_device_info_from_udevadm(DeviceInfo* info) {
         }
     }
     pclose(fp);
+
+    // Fallback for ID_BUS if not explicitly found by udevadm
+    // This is less common but can happen on some systems or configurations.
+    if (info->bus_type == BUS_TYPE_UNKNOWN) {
+        char sysfs_subsystem_path[MAX_FULL_PATH_LEN];
+        snprintf(sysfs_subsystem_path, sizeof(sysfs_subsystem_path), "/sys/block/%s/device/subsystem", info->main_dev_name);
+        char* subsystem_value = read_sysfs_attribute(sysfs_subsystem_path);
+        if (subsystem_value) {
+            if (strcmp(subsystem_value, "ata") == 0) info->bus_type = BUS_TYPE_ATA;
+            else if (strcmp(subsystem_value, "scsi") == 0) info->bus_type = BUS_TYPE_SCSI;
+            else if (strcmp(subsystem_value, "usb") == 0) info->bus_type = BUS_TYPE_USB;
+            // No direct NVMe subsystem, it's typically "pci" and then distinguished by path or ID_BUS=nvme
+            // if (strcmp(subsystem_value, "nvme") == 0) info->bus_type = BUS_TYPE_NVME; // Unlikely to be "nvme"
+            free(subsystem_value);
+        }
+    }
 }
 
 
@@ -333,10 +349,8 @@ void populate_device_info_from_sysfs(DeviceInfo* info) {
 
     if (rotational_str) free(rotational_str);
 
-    // If model, vendor, serial, firmware_rev were not obtained by udevadm,
-    // (e.g. if udevadm isn't available or doesn't expose them),
-    // then try to get them from sysfs as a fallback.
-    // This is less common but provides robustness.
+    // Fallback to sysfs for model, vendor, serial, firmware_rev if not obtained by udevadm
+    // This is less common but provides robustness if udevadm fails or doesn't provide these specific IDs.
 
     // NVMe devices have different sysfs paths for these details, handle them separately.
     if (info->type == DEVICE_TYPE_NVME_SSD) {
@@ -399,7 +413,7 @@ void populate_device_info_from_sysfs(DeviceInfo* info) {
 }
 
 
-// Populates DeviceInfo from smartctl output string (for RPM and serial fallback)
+// Populates DeviceInfo from smartctl output string (for RPM and serial fallback, and now vendor fallback)
 void populate_device_info_from_smartctl_output(DeviceInfo* info, const char* smartctl_output) {
     // Get RPM if it's an HDD
     if (info->type == DEVICE_TYPE_HDD && info->rotation_rate_rpm == 0) { // Check if RPM is not yet populated
@@ -428,6 +442,45 @@ void populate_device_info_from_smartctl_output(DeviceInfo* info, const char* sma
         if (serial_value) {
             strncpy(info->serial, serial_value, sizeof(info->serial)-1);
             free(serial_value);
+        }
+    }
+
+    // New: Get Vendor from smartctl "Model Family" or "Device Model" if current vendor is empty
+    if (strlen(info->vendor) == 0) {
+        char* model_family = get_string_from_output(smartctl_output, "Model Family:", NULL);
+        if (model_family) {
+            // Extract the first word or words until a common model separator (e.g., " ", "-")
+            char *space_pos = strchr(model_family, ' ');
+            if (space_pos) { // "Western Digital Ultrastar DC HC550" -> "Western Digital"
+                char *second_space_pos = strchr(space_pos + 1, ' ');
+                if (second_space_pos && (second_space_pos - model_family) < sizeof(info->vendor)) {
+                     // Check if "Western Digital" fits
+                    size_t vendor_len = second_space_pos - model_family;
+                    strncpy(info->vendor, model_family, vendor_len);
+                    info->vendor[vendor_len] = '\0';
+                } else { // Just "Western" if only one word is needed or second word doesn't fit
+                    size_t vendor_len = space_pos - model_family;
+                    strncpy(info->vendor, model_family, vendor_len);
+                    info->vendor[vendor_len] = '\0';
+                }
+            } else { // "Seagate" or similar single word
+                strncpy(info->vendor, model_family, sizeof(info->vendor)-1);
+            }
+            free(model_family);
+        } else {
+            // Fallback to Device Model if Model Family not found, take the first word as vendor
+            char* device_model = get_string_from_output(smartctl_output, "Device Model:", NULL);
+            if (device_model) {
+                char *space_pos = strchr(device_model, ' ');
+                if (space_pos) {
+                    size_t vendor_len = space_pos - device_model;
+                    strncpy(info->vendor, device_model, vendor_len);
+                    info->vendor[vendor_len] = '\0';
+                } else {
+                    strncpy(info->vendor, device_model, sizeof(info->vendor)-1);
+                }
+                free(device_model);
+            }
         }
     }
 }
