@@ -600,63 +600,7 @@ static void print_final_summary(const ScanProgress* progress, const TimeCategori
         printf("\033[32m扫描状态:\033[0m 正常完成\n");
     }
 
-    printf("\n");
-
-    // 打印详细分类统计（按您要求的格式）
-    printf("分类统计：\n");
-
-    // 定义分类信息
-    struct {
-        TimeCategoryType type;
-        const char* name;
-        const char* description;
-        int threshold;
-        const char* operator;
-    } category_info[] = {
-        {TIME_CATEGORY_EXCELLENT, "优秀", "响应时间极佳", categories->excellent_max, "≤"},
-        {TIME_CATEGORY_GOOD, "良好", "响应时间很好", categories->good_max, "≤"},
-        {TIME_CATEGORY_NORMAL, "正常", "响应时间正常", categories->normal_max, "≤"},
-        {TIME_CATEGORY_GENERAL, "一般", "响应时间开始变慢", categories->general_max, "≤"},
-        {TIME_CATEGORY_POOR, "欠佳", "响应时间较差", categories->poor_max, "≤"},
-        {TIME_CATEGORY_SEVERE, "严重", "响应时间很差", categories->severe_max, "≤"},
-        {TIME_CATEGORY_SUSPECT, "可疑", "需要重测确认", categories->suspect_threshold, ">"},
-        {TIME_CATEGORY_DAMAGED, "损坏", "真正的坏道", 0, ">"}
-    };
-
-    for (int i = 0; i < 8; i++) {
-        TimeCategoryType type = category_info[i].type;
-        const char* name = category_info[i].name;
-        const char* description = category_info[i].description;
-        int threshold = category_info[i].threshold;
-        const char* operator = category_info[i].operator;
-        unsigned long count = categories->counts[type];
-
-        double percentage = 0.0;
-        if (categories->total_reads > 0) {
-            percentage = (double)count / categories->total_reads * 100;
-        }
-
-        if (count > 0) {
-            // 有数据时使用彩色显示
-            printf("  %s%-8s\033[0m: %8lu 次 (%6.2f%%)   %s %4d ms (%s)\n",
-                   get_category_color_str(type), name, count, percentage,
-                   operator, threshold, description);
-        } else {
-            // 没有数据时使用暗色显示
-            if (type == TIME_CATEGORY_DAMAGED) {
-                printf("  \033[90m%-8s: %8lu 次 (%6.2f%%)   %s %4d ms 或发生 IO 错误 (%s)\033[0m\n",
-                       name, count, percentage, operator, threshold, description);
-            } else {
-                printf("  \033[90m%-8s: %8lu 次 (%6.2f%%)   %s %4d ms (%s)\033[0m\n",
-                       name, count, percentage, operator, threshold, description);
-            }
-        }
-    }
-
-    printf("\n");
-
-    // 打印时间分类统计
-    print_time_statistics(categories);
+    printf("\033[1;34m═══════════════════════════════════════════════════════════════\033[0m\n\n");
 }
 
 /**
@@ -726,9 +670,6 @@ int scan_device(const ScanOptions* opts) {
         fprintf(stderr, "错误: 时间分类配置不合理\n");
         return -1;
     }
-
-    // 打印时间分类配置
-    print_time_categories_config(&categories);
 
     // 生成采样位置（如果需要）
     unsigned long* sample_positions = NULL;
