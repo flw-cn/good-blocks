@@ -131,8 +131,7 @@ static int open_device_for_scan(const char* device_path) {
  */
 static void print_scan_header(const ScanOptions* opts,
                               unsigned long start_sector,
-                              unsigned long end_sector,
-                              const DeviceGeometry* geometry) {
+                              unsigned long end_sector) {
     printf("\n\033[1;34m═══════════════════════════════════════════════════════════════\033[0m\n");
     printf("\033[1;34m                    磁盘健康扫描开始                          \033[0m\n");
     printf("\033[1;34m═══════════════════════════════════════════════════════════════\033[0m\n");
