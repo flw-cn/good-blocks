@@ -5,7 +5,7 @@
 #define BLOCK_SIZE_DEFAULT          4096
 #define MIN_REPORT_INTERVAL         1000
 #define DEFAULT_SUSPECT_THRESHOLD   100
-#define DEFAULT_SUSPECT_RETRIES     3
+#define DEFAULT_SUSPECT_RETRIES     10
 #define DEFAULT_SUSPECT_INTERVAL    100
 
 #include <stddef.h>

@@ -138,7 +138,7 @@ static void print_scan_header(const ScanOptions* opts,
     printf("\033[1;34m═══════════════════════════════════════════════════════════════\033[0m\n");
 
     printf("\033[36m扫描设备:\033[0m %s\n", opts->device);
-    printf("\033[36m扫描范围:\033[0m 逻辑扇区 %lu - %lu (按 %d 字节/扇区)\n", start_sector, end_sector, geometry->sector_size);
+    printf("\033[36m扫描范围:\033[0m 逻辑扇区 %lu - %lu\n", start_sector, end_sector);
     printf("\033[36m扫描扇区数:\033[0m %lu 个逻辑扇区\n", end_sector - start_sector);
     printf("\033[36m块大小:\033[0m %ld 字节 (每次读取)\n", opts->block_size);
 
