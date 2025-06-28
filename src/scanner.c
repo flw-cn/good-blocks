@@ -26,7 +26,7 @@ static void setup_signal_handlers(void);
 static int get_device_geometry(const char *device, DeviceGeometry *geometry);
 static int open_device_for_scan(const char* device_path);
 static void print_scan_header(const ScanOptions* opts,
-                              unsigned long start_sector, unsigned long end_sector);
+                              unsigned long start_sector, unsigned long end_sector, const DeviceGeometry* geometry);
 static void update_progress(ScanProgress* progress, unsigned long current_sector,
                            int read_time_ms, TimeCategoryType category, const TimeCategories* categories, const DeviceGeometry* geometry);
 static void update_progress_display(const ScanProgress* progress, const TimeCategories* categories, const DeviceGeometry* geometry);
@@ -36,7 +36,7 @@ static int perform_sector_read(int fd, unsigned long sector, size_t block_size,
 static int handle_suspect_block(unsigned long sector,
                                const ScanOptions* opts, FILE* log_file,
                                const char* device_path);
-static void print_final_summary(const ScanProgress* progress);
+static void print_final_summary(const ScanProgress* progress, const DeviceGeometry* geometry);
 static void log_sector_result(FILE* log_file, unsigned long sector, int read_time_ms,
                              TimeCategoryType category, const char* notes);
 
@@ -131,7 +131,8 @@ static int open_device_for_scan(const char* device_path) {
  */
 static void print_scan_header(const ScanOptions* opts,
                               unsigned long start_sector,
-                              unsigned long end_sector) {
+                              unsigned long end_sector,
+                              const DeviceGeometry* geometry) {
     printf("\n\033[1;34m═══════════════════════════════════════════════════════════════\033[0m\n");
     printf("\033[1;34m                    磁盘健康扫描开始                          \033[0m\n");
     printf("\033[1;34m═══════════════════════════════════════════════════════════════\033[0m\n");
@@ -234,7 +235,7 @@ static void update_progress(ScanProgress* progress, unsigned long current_sector
         should_update = 1;
     }
 
-    // 条件 4：第一次更新或最后一个扇区
+    // 条件 4：第一次更新或最后一个逻辑扇区
     if (last_displayed_sector == 0 || progress->sectors_scanned == progress->total_sectors) {
         should_update = 1;
     }
@@ -524,7 +525,7 @@ static void log_sector_result(FILE* log_file, unsigned long sector, int read_tim
 /**
  * 打印最终摘要
  */
-static void print_final_summary(const ScanProgress* progress) {
+static void print_final_summary(const ScanProgress* progress, const DeviceGeometry* geometry) {
     printf("\n\n\033[1;34m═══════════════════════════════════════════════════════════════\033[0m\n");
     printf("\033[1;34m                      扫描完成摘要                            \033[0m\n");
     printf("\033[1;34m═══════════════════════════════════════════════════════════════\033[0m\n");
@@ -535,7 +536,7 @@ static void print_final_summary(const ScanProgress* progress) {
     if (progress->sectors_per_second > 0) {
         printf("\033[36m平均扫描速度:\033[0m %.1f 逻辑扇区/秒 (%.1f MB/s)\n",
                progress->sectors_per_second,
-               progress->sectors_per_second * geometry.sector_size / (1024*1024));
+               progress->sectors_per_second * geometry->sector_size / (1024*1024));
     }
 
     if (g_scan_interrupted) {
@@ -638,7 +639,7 @@ int scan_device(const ScanOptions* opts) {
     }
 
     // 打印扫描头部信息
-    print_scan_header(opts, start_sector, end_sector);
+    print_scan_header(opts, start_sector, end_sector, &geometry);
 
     // 打开设备进行扫描
     int fd = open_device_for_scan(opts->device);
@@ -760,7 +761,7 @@ int scan_device(const ScanOptions* opts) {
 
     // 完成进度显示，将光标移到末尾
     finish_progress_display();
-    print_final_summary(&progress);
+    print_final_summary(&progress, &geometry);
 
     g_current_progress = NULL;
 
