@@ -5,6 +5,13 @@
 #include "device_info.h"
 #include <stdarg.h> // For va_list in get_string_from_output
 
+// Define MAX_FULL_PATH_LEN for internal use within disk_collector.c
+// It's generally good practice to define this larger than PATH_MAX if you're constructing paths
+// especially if they involve multiple concatenated components or command strings.
+#ifndef MAX_FULL_PATH_LEN
+#define MAX_FULL_PATH_LEN 4096 // A common safe size for full paths and command buffers
+#endif
+
 // Function prototypes
 char* get_main_device_name(const char* dev_path);
 
@@ -23,4 +30,4 @@ void populate_device_info_from_sysfs(DeviceInfo* info);
 // Adjusted: Populate info from smartctl output (for RPM, serial fallback)
 void populate_device_info_from_smartctl_output(DeviceInfo* info, const char* smartctl_output);
 
-#endif // DISK_COLLECTOR_Hendif // DISK_COLLECTOR_Hendif // DISK_COLLECTOR_H
+#endif // DISK_COLLECTOR_H
