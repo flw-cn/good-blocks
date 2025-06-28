@@ -525,7 +525,8 @@ static void log_sector_result(FILE* log_file, unsigned long sector, int read_tim
  * 打印最终摘要
  */
 static void print_final_summary(const ScanProgress* progress, const DeviceGeometry* geometry) {
-    printf("\n\n\033[1;34m═══════════════════════════════════════════════════════════════\033[0m\n");
+    printf("\n");
+    printf("\033[1;34m═══════════════════════════════════════════════════════════════\033[0m\n");
     printf("\033[1;34m                      扫描完成摘要                            \033[0m\n");
     printf("\033[1;34m═══════════════════════════════════════════════════════════════\033[0m\n");
 
@@ -544,7 +545,7 @@ static void print_final_summary(const ScanProgress* progress, const DeviceGeomet
         printf("\033[32m扫描状态:\033[0m 正常完成\n");
     }
 
-    printf("\033[1;34m═══════════════════════════════════════════════════════════════\033[0m\n\n");
+    printf("\033[1;34m═══════════════════════════════════════════════════════════════\033[0m\n");
 }
 
 /**
