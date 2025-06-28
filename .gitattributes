@@ -1,0 +1,32 @@
+# 自动检测文本文件并进行行尾转换
+* text=auto
+
+# 明确指定源代码文件
+*.c text eol=lf
+*.h text eol=lf
+*.cpp text eol=lf
+*.hpp text eol=lf
+*.py text eol=lf
+*.js text eol=lf
+*.md text eol=lf
+*.txt text eol=lf
+*.sh text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.json text eol=lf
+Makefile text eol=lf
+*.mk text eol=lf
+
+# 二进制文件
+*.exe binary
+*.bin binary
+*.o binary
+*.a binary
+*.so binary
+*.dll binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
