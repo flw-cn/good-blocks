@@ -33,14 +33,13 @@ static void update_progress_display(const ScanProgress* progress, const TimeCate
 static void finish_progress_display(void);
 static int perform_sector_read(int fd, unsigned long sector, size_t block_size,
                               char* buffer, DeviceGeometry* geometry);
-static int handle_suspect_block(int fd, unsigned long sector, size_t block_size,
-                               char* buffer, DeviceGeometry* geometry,
+static int handle_suspect_block(unsigned long sector,
                                const ScanOptions* opts, FILE* log_file,
                                const char* device_path);
 static void generate_sample_positions(unsigned long start_sector, unsigned long end_sector,
                                      double sample_ratio, int random_sampling,
                                      unsigned long** positions, unsigned long* count);
-static void print_final_summary(const ScanProgress* progress, const TimeCategories* categories);
+static void print_final_summary(const ScanProgress* progress);
 static void log_sector_result(FILE* log_file, unsigned long sector, int read_time_ms,
                              TimeCategoryType category, const char* notes);
 
@@ -126,19 +125,7 @@ static int get_device_geometry(const char *device, DeviceGeometry *geometry) {
  * 为扫描打开设备
  */
 static int open_device_for_scan(const char* device_path) {
-    int fd = open(device_path, O_RDONLY | O_DIRECT);
-    if (fd == -1) {
-        // 如果 O_DIRECT 失败，尝试不使用 O_DIRECT
-        printf("\033[33m【设备打开】\033[m O_DIRECT 失败，尝试常规模式...\n");
-        fd = open(device_path, O_RDONLY);
-        if (fd == -1) {
-            fprintf(stderr, "错误: 无法打开设备 %s: %s\n", device_path, strerror(errno));
-            return -1;
-        }
-    } else {
-        printf("\033[32m【设备打开】\033[m使用 O_DIRECT 模式打开设备\n");
-    }
-
+    int fd = open(device_path, O_RDONLY | O_DIRECT | O_SYNC);
     return fd;
 }
 
@@ -456,8 +443,7 @@ static int perform_sector_read(int fd, unsigned long sector, size_t block_size,
 /**
  * 处理可疑块
  */
-static int handle_suspect_block(int fd, unsigned long sector, size_t block_size,
-                               char* buffer, DeviceGeometry* geometry,
+static int handle_suspect_block(unsigned long sector,
                                const ScanOptions* opts, FILE* log_file,
                                const char* device_path) {
     if (opts->suspect_retries <= 0) {
@@ -582,7 +568,7 @@ static void log_sector_result(FILE* log_file, unsigned long sector, int read_tim
 /**
  * 打印最终摘要
  */
-static void print_final_summary(const ScanProgress* progress, const TimeCategories* categories) {
+static void print_final_summary(const ScanProgress* progress) {
     printf("\n\n\033[1;34m═══════════════════════════════════════════════════════════════\033[0m\n");
     printf("\033[1;34m                      扫描完成摘要                            \033[0m\n");
     printf("\033[1;34m═══════════════════════════════════════════════════════════════\033[0m\n");
@@ -750,9 +736,7 @@ int scan_device(const ScanOptions* opts) {
             // 检查是否为可疑块
             if (read_time >= suspect_threshold) {
                 // 处理可疑块
-                int retest_time = handle_suspect_block(fd, current_sector, opts->block_size,
-                                                     buffer, &geometry, opts, log_file,
-                                                     opts->device);
+                int retest_time = handle_suspect_block(current_sector, opts, log_file, opts->device);
                 if (retest_time >= 0) {
                     read_time = retest_time;
                     category = categorize_time(&categories, read_time);
@@ -793,7 +777,7 @@ int scan_device(const ScanOptions* opts) {
 
     // 完成进度显示，将光标移到末尾
     finish_progress_display();
-    print_final_summary(&progress, &categories);
+    print_final_summary(&progress);
 
     g_current_progress = NULL;
 

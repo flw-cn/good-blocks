@@ -275,7 +275,7 @@ static void print_categories_summary(const TimeCategories* categories) {
     printf("  ● %s欠佳\033[0m: ≤ %4d ms \033[90m(响应时间较差)\033[0m\n", get_category_color(TIME_CATEGORY_POOR), categories->poor_max);
     printf("  ● %s严重\033[0m: ≤ %4d ms \033[90m(响应时间很差)\033[0m\n", get_category_color(TIME_CATEGORY_SEVERE), categories->severe_max);
     printf("  ● %s可疑\033[0m: >  %3d ms \033[90m(需要重测确认)\033[0m\n", get_category_color(TIME_CATEGORY_SUSPECT), categories->suspect_threshold);
-    printf("  ● %s损坏\033[0m: >  %3d ms 或发生 IO 错误 \033[90m(真正的坏道)\033[0m\n", get_category_color(TIME_CATEGORY_DAMAGED));
+    printf("  ● %s损坏\033[0m: >  %3d ms 或发生 IO 错误 \033[90m(真正的坏道)\033[0m\n", get_category_color(TIME_CATEGORY_DAMAGED), categories->severe_max);
     printf("\n");
 }
 
