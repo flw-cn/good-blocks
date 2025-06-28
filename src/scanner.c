@@ -268,7 +268,7 @@ static void print_live_statistics(const TimeCategories* categories) {
         {TIME_CATEGORY_POOR, "欠佳", "响应时间较差", categories->poor_max, "≤"},
         {TIME_CATEGORY_SEVERE, "严重", "响应时间很差", categories->severe_max, "≤"},
         {TIME_CATEGORY_SUSPECT, "可疑", "需要重测确认", categories->suspect_threshold, ">"},
-        {TIME_CATEGORY_DAMAGED, "损坏", "真正的坏道", 0, ">"}
+        {TIME_CATEGORY_DAMAGED, "损坏", "真正的坏道", categories->severe_max, ">"}
     };
 
     for (int i = 0; i < 8; i++) {
