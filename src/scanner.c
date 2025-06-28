@@ -26,7 +26,7 @@ static void setup_signal_handlers(void);
 static int get_device_geometry(const char *device, DeviceGeometry *geometry);
 static int open_device_for_scan(const char* device_path);
 static void print_scan_header(const ScanOptions* opts,
-                              unsigned long start_sector, unsigned long end_sector, const DeviceGeometry* geometry);
+                              unsigned long start_sector, unsigned long end_sector);
 static void update_progress(ScanProgress* progress, unsigned long current_sector,
                            int read_time_ms, TimeCategoryType category, const TimeCategories* categories, const DeviceGeometry* geometry);
 static void update_progress_display(const ScanProgress* progress, const TimeCategories* categories, const DeviceGeometry* geometry);
