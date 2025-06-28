@@ -28,8 +28,8 @@ static int open_device_for_scan(const char* device_path);
 static void print_scan_header(const ScanOptions* opts,
                               unsigned long start_sector, unsigned long end_sector);
 static void update_progress(ScanProgress* progress, unsigned long current_sector,
-                           int read_time_ms, TimeCategoryType category, const TimeCategories* categories);
-static void update_progress_display(const ScanProgress* progress, const TimeCategories* categories);
+                           int read_time_ms, TimeCategoryType category, const TimeCategories* categories, const DeviceGeometry* geometry);
+static void update_progress_display(const ScanProgress* progress, const TimeCategories* categories, const DeviceGeometry* geometry);
 static void finish_progress_display(void);
 static int perform_sector_read(int fd, unsigned long sector, size_t block_size,
                               char* buffer, DeviceGeometry* geometry);
@@ -108,13 +108,13 @@ static int get_device_geometry(const char *device, DeviceGeometry *geometry) {
 
     // BLKGETSIZE 返回的扇区数总是以 512 字节为基准
     double total_gb = (double)geometry->total_sectors * 512 / (1024*1024*1024);
-    printf("\033[35m【设备几何】\033[m设备总扇区数: %lu (以512字节计，%.2f GB)\n",
+    printf("\033[35m【设备几何】\033[m设备总扇区数: %lu (以 512 字节计，%.2f GB)\n",
            geometry->total_sectors, total_gb);
 
     // 如果逻辑扇区大小不是 512，显示换算后的扇区数
     if (geometry->sector_size != 512) {
         unsigned long logical_sectors = geometry->total_sectors * 512 / geometry->sector_size;
-        printf("\033[35m【设备几何】\033[m逻辑扇区数: %lu (以%d字节计)\n",
+        printf("\033[35m【设备几何】\033[m逻辑扇区数: %lu (以 %d 字节计)\n",
                logical_sectors, geometry->sector_size);
     }
 
@@ -190,7 +190,7 @@ static void print_scan_header(const ScanOptions* opts,
  * 更新扫描进度
  */
 static void update_progress(ScanProgress* progress, unsigned long current_sector,
-                           int read_time_ms, TimeCategoryType category, const TimeCategories* categories) {
+                           int read_time_ms, TimeCategoryType category, const TimeCategories* categories, const DeviceGeometry* geometry) {
     if (!progress) return;
 
     progress->current_sector = current_sector;
@@ -218,36 +218,47 @@ static void update_progress(ScanProgress* progress, unsigned long current_sector
     // 更新百分比
     progress->progress_percent = (double)progress->sectors_scanned / progress->total_sectors * 100;
 
-    // 智能更新显示频率
+    // 智能更新显示频率（增加时间间隔控制）
     static unsigned long last_displayed_sector = 0;
     static double last_displayed_percent = 0.0;
+    static struct timeval last_display_time = {0, 0};
 
     int should_update = 0;
 
-    // 条件1：百分比变化超过0.1%
-    if (progress->progress_percent - last_displayed_percent >= 0.1) {
+    // 计算距离上次显示的时间间隔
+    double time_since_last_display = 0.0;
+    if (last_display_time.tv_sec > 0) {
+        struct timeval now;
+        gettimeofday(&now, NULL);
+        time_since_last_display = (now.tv_sec - last_display_time.tv_sec) +
+                                 (now.tv_usec - last_display_time.tv_usec) / 1000000.0;
+    }
+
+    // 条件 1：时间间隔超过 1 秒
+    if (time_since_last_display >= 1.0) {
         should_update = 1;
     }
 
-    // 条件2：发现问题扇区（欠佳或更差）
+    // 条件 2：发现问题扇区（欠佳或更差）- 立即显示
     if (category >= TIME_CATEGORY_POOR) {
         should_update = 1;
     }
 
-    // 条件3：距离上次显示超过1000个扇区
-    if (current_sector - last_displayed_sector >= 1000) {
+    // 条件 3：百分比变化超过 1%（降低频率）
+    if (progress->progress_percent - last_displayed_percent >= 1.0) {
         should_update = 1;
     }
 
-    // 条件4：第一次更新或最后一个扇区
+    // 条件 4：第一次更新或最后一个扇区
     if (last_displayed_sector == 0 || progress->sectors_scanned == progress->total_sectors) {
         should_update = 1;
     }
 
     if (should_update) {
-        update_progress_display(progress, categories);
+        update_progress_display(progress, categories, geometry);
         last_displayed_sector = current_sector;
         last_displayed_percent = progress->progress_percent;
+        gettimeofday(&last_display_time, NULL);  // 记录显示时间
     }
 }
 
@@ -309,11 +320,11 @@ static void print_live_statistics(const TimeCategories* categories) {
 /**
  * 打印完整的进度显示区域（多行布局）
  */
-static void print_full_progress_display(const ScanProgress* progress, const TimeCategories* categories) {
+static void print_full_progress_display(const ScanProgress* progress, const TimeCategories* categories, const DeviceGeometry* geometry) {
     if (!progress) return;
 
-    // 1. 进度条
-    int bar_width = 50;
+    // 1. 简化的进度条（30字符宽度，控制总行宽在80列以内）
+    int bar_width = 25;
     int filled = (int)(progress->progress_percent / 100.0 * bar_width);
 
     printf("\033[36m进度:\033[0m [");
@@ -324,32 +335,46 @@ static void print_full_progress_display(const ScanProgress* progress, const Time
             printf("░");
         }
     }
-    printf("] %6.2f%% ", progress->progress_percent);
+    printf("] %5.1f%% ", progress->progress_percent);
 
-    // 打印当前扇区和最后读取时间
-    printf("扇区:%lu ", progress->current_sector);
-
-    // 用颜色显示最后读取时间
-    print_time_category(progress->last_category, progress->last_read_time);
-
-    // 打印速度信息
-    if (progress->sectors_per_second > 0) {
-        printf(" %.1f扇区/秒", progress->sectors_per_second);
-
-        if (progress->estimated_remaining_sec > 0) {
-            int hours = progress->estimated_remaining_sec / 3600;
-            int minutes = (progress->estimated_remaining_sec % 3600) / 60;
-            int seconds = progress->estimated_remaining_sec % 60;
-
-            if (hours > 0) {
-                printf(" 剩余:%dh%dm", hours, minutes);
-            } else if (minutes > 0) {
-                printf(" 剩余:%dm%ds", minutes, seconds);
-            } else {
-                printf(" 剩余:%ds", seconds);
-            }
+    // 计算并显示字节速度
+    if (progress->sectors_per_second > 0 && geometry) {
+        double bytes_per_second = progress->sectors_per_second * geometry->sector_size;
+        if (bytes_per_second >= 1024*1024*1024) {
+            printf("%.1fG/s ", bytes_per_second / (1024*1024*1024));
+        } else if (bytes_per_second >= 1024*1024) {
+            printf("%.1fM/s ", bytes_per_second / (1024*1024));
+        } else if (bytes_per_second >= 1024) {
+            printf("%.1fK/s ", bytes_per_second / 1024);
+        } else {
+            printf("%.0fB/s ", bytes_per_second);
         }
+    } else {
+        printf("--.-/s ");
     }
+
+    // 计算并显示经过时间
+    struct timeval now;
+    gettimeofday(&now, NULL);
+    double elapsed = (now.tv_sec - progress->start_time.tv_sec) +
+                    (now.tv_usec - progress->start_time.tv_usec) / 1000000.0;
+    int elapsed_hours = (int)(elapsed / 3600);
+    int elapsed_minutes = (int)((elapsed - elapsed_hours * 3600) / 60);
+    int elapsed_seconds = (int)(elapsed - elapsed_hours * 3600 - elapsed_minutes * 60);
+
+    printf("%02d:%02d:%02d ", elapsed_hours, elapsed_minutes, elapsed_seconds);
+
+    // 显示剩余时间
+    if (progress->estimated_remaining_sec > 0) {
+        int hours = progress->estimated_remaining_sec / 3600;
+        int minutes = (progress->estimated_remaining_sec % 3600) / 60;
+        int seconds = progress->estimated_remaining_sec % 60;
+
+        printf("剩余 %02d:%02d:%02d", hours, minutes, seconds);
+    } else {
+        printf("剩余 --:--:--");
+    }
+
     printf("\n");
 
     // 2. 信息栏（空行）
@@ -361,24 +386,25 @@ static void print_full_progress_display(const ScanProgress* progress, const Time
 }
 
 /**
- * 更新进度显示（多行版本 - 您要求的布局）
+ * 更新进度显示（多行版本 - 完全重绘方式，稳定可靠）
  */
-static void update_progress_display(const ScanProgress* progress, const TimeCategories* categories) {
+static void update_progress_display(const ScanProgress* progress, const TimeCategories* categories, const DeviceGeometry* geometry) {
     if (!progress) return;
 
     static int first_display = 1;
 
     if (first_display) {
         // 第一次显示
-        print_full_progress_display(progress, categories);
+        print_full_progress_display(progress, categories, geometry);
         first_display = 0;
     } else {
-        // 后续更新：清除并重绘
-        // 向上移动10行（进度条1行 + 空行1行 + 标题1行 + 统计8行 = 11行，但我们需要10行）
+        // 后续更新：完全重绘整个区域
+        // 1. 向上移动到进度条开始位置
         printf("\033[11A");
-
-        // 重新绘制整个区域
-        print_full_progress_display(progress, categories);
+        // 2. 清除从当前位置到屏幕底部的所有内容
+        printf("\033[J");
+        // 3. 重新绘制整个进度显示区域
+        print_full_progress_display(progress, categories, geometry);
     }
 
     fflush(stdout);
@@ -810,7 +836,7 @@ int scan_device(const ScanOptions* opts) {
         }
 
         // 更新进度
-        update_progress(&progress, current_sector, read_time, category, &categories);
+        update_progress(&progress, current_sector, read_time, category, &categories, &geometry);
 
         // 等待延迟（如果设置了等待因子）
         if (opts->wait_factor > 0 && read_time > 0) {
