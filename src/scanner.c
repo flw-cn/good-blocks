@@ -28,8 +28,9 @@ static int open_device_for_scan(const char* device_path);
 static void print_scan_header(const ScanOptions* opts,
                               unsigned long start_sector, unsigned long end_sector);
 static void update_progress(ScanProgress* progress, unsigned long current_sector,
-                           int read_time_ms, TimeCategoryType category);
-static void print_progress_line(const ScanProgress* progress);
+                           int read_time_ms, TimeCategoryType category, const TimeCategories* categories);
+static void update_progress_display(const ScanProgress* progress, const TimeCategories* categories);
+static void finish_progress_display(void);
 static int perform_sector_read(int fd, unsigned long sector, size_t block_size,
                               char* buffer, DeviceGeometry* geometry);
 static int handle_suspect_block(int fd, unsigned long sector, size_t block_size,
@@ -189,7 +190,7 @@ static void print_scan_header(const ScanOptions* opts,
  * 更新扫描进度
  */
 static void update_progress(ScanProgress* progress, unsigned long current_sector,
-                           int read_time_ms, TimeCategoryType category) {
+                           int read_time_ms, TimeCategoryType category, const TimeCategories* categories) {
     if (!progress) return;
 
     progress->current_sector = current_sector;
@@ -244,23 +245,75 @@ static void update_progress(ScanProgress* progress, unsigned long current_sector
     }
 
     if (should_update) {
-        print_progress_line(progress);
+        update_progress_display(progress, categories);
         last_displayed_sector = current_sector;
         last_displayed_percent = progress->progress_percent;
     }
 }
 
 /**
- * 打印进度行
+ * 打印详细统计信息（用于实时显示）
  */
-static void print_progress_line(const ScanProgress* progress) {
+static void print_live_statistics(const TimeCategories* categories) {
+    if (!categories) return;
+
+    // 定义分类信息
+    struct {
+        TimeCategoryType type;
+        const char* name;
+        const char* description;
+        int threshold;
+        const char* operator;
+    } category_info[] = {
+        {TIME_CATEGORY_EXCELLENT, "优秀", "响应时间极佳", categories->excellent_max, "≤"},
+        {TIME_CATEGORY_GOOD, "良好", "响应时间很好", categories->good_max, "≤"},
+        {TIME_CATEGORY_NORMAL, "正常", "响应时间正常", categories->normal_max, "≤"},
+        {TIME_CATEGORY_GENERAL, "一般", "响应时间开始变慢", categories->general_max, "≤"},
+        {TIME_CATEGORY_POOR, "欠佳", "响应时间较差", categories->poor_max, "≤"},
+        {TIME_CATEGORY_SEVERE, "严重", "响应时间很差", categories->severe_max, "≤"},
+        {TIME_CATEGORY_SUSPECT, "可疑", "需要重测确认", categories->suspect_threshold, ">"},
+        {TIME_CATEGORY_DAMAGED, "损坏", "真正的坏道", 0, ">"}
+    };
+
+    for (int i = 0; i < 8; i++) {
+        TimeCategoryType type = category_info[i].type;
+        const char* name = category_info[i].name;
+        const char* description = category_info[i].description;
+        int threshold = category_info[i].threshold;
+        const char* operator = category_info[i].operator;
+        unsigned long count = categories->counts[type];
+
+        double percentage = 0.0;
+        if (categories->total_reads > 0) {
+            percentage = (double)count / categories->total_reads * 100;
+        }
+
+        if (count > 0) {
+            // 有数据时使用彩色显示
+            printf("  %s%-8s\033[0m: %8lu 次 (%6.2f%%)   %s %4d ms (%s)\n",
+                   get_category_color_str(type), name, count, percentage,
+                   operator, threshold, description);
+        } else {
+            // 没有数据时使用暗色显示
+            if (type == TIME_CATEGORY_DAMAGED) {
+                printf("  \033[90m%-8s: %8lu 次 (%6.2f%%)   %s %4d ms 或发生 IO 错误 (%s)\033[0m\n",
+                       name, count, percentage, operator, threshold, description);
+            } else {
+                printf("  \033[90m%-8s: %8lu 次 (%6.2f%%)   %s %4d ms (%s)\033[0m\n",
+                       name, count, percentage, operator, threshold, description);
+            }
+        }
+    }
+}
+
+/**
+ * 打印完整的进度显示区域（多行布局）
+ */
+static void print_full_progress_display(const ScanProgress* progress, const TimeCategories* categories) {
     if (!progress) return;
 
-    // 清除当前行
-    printf("\r\033[K");
-
-    // 打印进度条
-    int bar_width = 30;
+    // 1. 进度条
+    int bar_width = 50;
     int filled = (int)(progress->progress_percent / 100.0 * bar_width);
 
     printf("\033[36m进度:\033[0m [");
@@ -297,6 +350,45 @@ static void print_progress_line(const ScanProgress* progress) {
             }
         }
     }
+    printf("\n");
+
+    // 2. 信息栏（空行）
+    printf("\n");
+
+    // 3. 分类统计（8行）
+    printf("分类统计：\n");
+    print_live_statistics(categories);
+}
+
+/**
+ * 更新进度显示（多行版本 - 您要求的布局）
+ */
+static void update_progress_display(const ScanProgress* progress, const TimeCategories* categories) {
+    if (!progress) return;
+
+    static int first_display = 1;
+
+    if (first_display) {
+        // 第一次显示
+        print_full_progress_display(progress, categories);
+        first_display = 0;
+    } else {
+        // 后续更新：清除并重绘
+        // 向上移动10行（进度条1行 + 空行1行 + 标题1行 + 统计8行 = 11行，但我们需要10行）
+        printf("\033[11A");
+
+        // 重新绘制整个区域
+        print_full_progress_display(progress, categories);
+    }
+
+    fflush(stdout);
+}
+
+/**
+ * 完成进度显示（换行到下一行）
+ */
+static void finish_progress_display(void) {
+    printf("\n");  // 进度完成后换行
 
     fflush(stdout);
 }
@@ -484,6 +576,59 @@ static void print_final_summary(const ScanProgress* progress, const TimeCategori
 
     printf("\n");
 
+    // 打印详细分类统计（按您要求的格式）
+    printf("分类统计：\n");
+
+    // 定义分类信息
+    struct {
+        TimeCategoryType type;
+        const char* name;
+        const char* description;
+        int threshold;
+        const char* operator;
+    } category_info[] = {
+        {TIME_CATEGORY_EXCELLENT, "优秀", "响应时间极佳", categories->excellent_max, "≤"},
+        {TIME_CATEGORY_GOOD, "良好", "响应时间很好", categories->good_max, "≤"},
+        {TIME_CATEGORY_NORMAL, "正常", "响应时间正常", categories->normal_max, "≤"},
+        {TIME_CATEGORY_GENERAL, "一般", "响应时间开始变慢", categories->general_max, "≤"},
+        {TIME_CATEGORY_POOR, "欠佳", "响应时间较差", categories->poor_max, "≤"},
+        {TIME_CATEGORY_SEVERE, "严重", "响应时间很差", categories->severe_max, "≤"},
+        {TIME_CATEGORY_SUSPECT, "可疑", "需要重测确认", categories->suspect_threshold, ">"},
+        {TIME_CATEGORY_DAMAGED, "损坏", "真正的坏道", 0, ">"}
+    };
+
+    for (int i = 0; i < 8; i++) {
+        TimeCategoryType type = category_info[i].type;
+        const char* name = category_info[i].name;
+        const char* description = category_info[i].description;
+        int threshold = category_info[i].threshold;
+        const char* operator = category_info[i].operator;
+        unsigned long count = categories->counts[type];
+
+        double percentage = 0.0;
+        if (categories->total_reads > 0) {
+            percentage = (double)count / categories->total_reads * 100;
+        }
+
+        if (count > 0) {
+            // 有数据时使用彩色显示
+            printf("  %s%-8s\033[0m: %8lu 次 (%6.2f%%)   %s %4d ms (%s)\n",
+                   get_category_color_str(type), name, count, percentage,
+                   operator, threshold, description);
+        } else {
+            // 没有数据时使用暗色显示
+            if (type == TIME_CATEGORY_DAMAGED) {
+                printf("  \033[90m%-8s: %8lu 次 (%6.2f%%)   %s %4d ms 或发生 IO 错误 (%s)\033[0m\n",
+                       name, count, percentage, operator, threshold, description);
+            } else {
+                printf("  \033[90m%-8s: %8lu 次 (%6.2f%%)   %s %4d ms (%s)\033[0m\n",
+                       name, count, percentage, operator, threshold, description);
+            }
+        }
+    }
+
+    printf("\n");
+
     // 打印时间分类统计
     print_time_statistics(categories);
 }
@@ -665,7 +810,7 @@ int scan_device(const ScanOptions* opts) {
         }
 
         // 更新进度
-        update_progress(&progress, current_sector, read_time, category);
+        update_progress(&progress, current_sector, read_time, category, &categories);
 
         // 等待延迟（如果设置了等待因子）
         if (opts->wait_factor > 0 && read_time > 0) {
@@ -679,8 +824,8 @@ int scan_device(const ScanOptions* opts) {
     if (log_file) fclose(log_file);
     if (sample_positions) free(sample_positions);
 
-    // 打印最终摘要
-    printf("\n");  // 换行，避免进度条影响
+    // 完成进度显示，将光标移到末尾
+    finish_progress_display();
     print_final_summary(&progress, &categories);
 
     g_current_progress = NULL;
