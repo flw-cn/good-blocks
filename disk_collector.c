@@ -464,49 +464,50 @@ void populate_device_info_from_smartctl_output(DeviceInfo* info, const char* sma
         }
     }
 
-    // New: Get Vendor from smartctl "Model Family" or "Device Model" if current vendor is empty
-    if (strlen(info->vendor) == 0) {
-        char* model_family = get_string_from_output(smartctl_output, "Model Family:", NULL);
-        if (model_family) {
-            // "Western Digital Ultrastar DC HC550" -> "Western Digital"
-            char *space_pos1 = strchr(model_family, ' ');
-            if (space_pos1) {
-                char *space_pos2 = strchr(space_pos1 + 1, ' ');
-                if (space_pos2) { // Found two spaces, try to get "Western Digital"
-                    size_t vendor_len = space_pos2 - model_family;
-                    if (vendor_len < sizeof(info->vendor)) {
-                        strncpy(info->vendor, model_family, vendor_len);
-                        info->vendor[vendor_len] = '\0';
-                    } else { // Fallback if it's too long, just copy what fits
-                        strncpy(info->vendor, model_family, sizeof(info->vendor)-1);
-                    }
-                } else { // Only one space, take the first word as vendor
-                    size_t vendor_len = space_pos1 - model_family;
+    // *** IMPORTANT CHANGE HERE FOR VENDOR ***
+    // Always attempt to get Vendor from smartctl, and if successful, overwrite previous
+    // This is because smartctl's Model Family is typically the most accurate vendor info.
+    char* model_family = get_string_from_output(smartctl_output, "Model Family:", NULL);
+    if (model_family) {
+        // "Western Digital Ultrastar DC HC550" -> "Western Digital"
+        char *space_pos1 = strchr(model_family, ' ');
+        if (space_pos1) {
+            char *space_pos2 = strchr(space_pos1 + 1, ' ');
+            if (space_pos2) { // Found two spaces, try to get "Western Digital"
+                size_t vendor_len = space_pos2 - model_family;
+                if (vendor_len < sizeof(info->vendor)) {
                     strncpy(info->vendor, model_family, vendor_len);
                     info->vendor[vendor_len] = '\0';
+                } else { // Fallback if it's too long, just copy what fits
+                    strncpy(info->vendor, model_family, sizeof(info->vendor)-1);
                 }
-            } else { // No spaces, whole thing is the vendor/model family
-                strncpy(info->vendor, model_family, sizeof(info->vendor)-1);
+            } else { // Only one space, take the first word as vendor
+                size_t vendor_len = space_pos1 - model_family;
+                strncpy(info->vendor, model_family, vendor_len);
+                info->vendor[vendor_len] = '\0';
             }
-            free(model_family);
-        } else {
-            // Fallback to Device Model if Model Family not found, take the first word as vendor
-            char* device_model = get_string_from_output(smartctl_output, "Device Model:", NULL);
-            if (device_model) {
-                char *space_pos = strchr(device_model, ' ');
-                if (space_pos) {
-                    size_t vendor_len = space_pos - device_model;
-                    strncpy(info->vendor, device_model, vendor_len);
-                    info->vendor[vendor_len] = '\0';
-                } else {
-                    strncpy(info->vendor, device_model, sizeof(info->vendor)-1);
-                }
-                free(device_model);
+        } else { // No spaces, whole thing is the vendor/model family
+            strncpy(info->vendor, model_family, sizeof(info->vendor)-1);
+        }
+        free(model_family);
+    } else {
+        // Fallback to Device Model if Model Family not found, take the first word as vendor
+        char* device_model = get_string_from_output(smartctl_output, "Device Model:", NULL);
+        if (device_model) {
+            char *space_pos = strchr(device_model, ' ');
+            if (space_pos) {
+                size_t vendor_len = space_pos - device_model;
+                strncpy(info->vendor, device_model, vendor_len);
+                info->vendor[vendor_len] = '\0';
+            } else {
+                strncpy(info->vendor, device_model, sizeof(info->vendor)-1);
             }
+            free(device_model);
         }
     }
 
-    // New: Get Bus Type from smartctl "SATA Version is:" if it's still unknown
+
+    // Get Bus Type from smartctl "SATA Version is:" if it's still unknown
     if (info->bus_type == BUS_TYPE_UNKNOWN) {
         char* sata_version_str = get_string_from_output(smartctl_output, "SATA Version is:", NULL);
         if (sata_version_str) {
