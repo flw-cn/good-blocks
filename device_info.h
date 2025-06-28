@@ -8,18 +8,21 @@
 #define MAX_VENDOR_LEN 32
 #define MAX_SERIAL_LEN 32
 #define MAX_FW_REV_LEN 16
-// Increase MAX_FULL_PATH_LEN again to definitively resolve snprintf truncation warnings
-#define MAX_FULL_PATH_LEN 1024 
+#define MAX_FULL_PATH_LEN 1024 // Adjusted based on previous discussions
 #define MAX_NOMINAL_CAPACITY_LEN 16
 
 typedef enum {
     BUS_TYPE_UNKNOWN,
-    BUS_TYPE_ATA,       // Includes SATA and PATA
+    // Add specific SATA and PATA types
+    BUS_TYPE_SATA,
+    BUS_TYPE_PATA,
     BUS_TYPE_SCSI,      // Includes SAS and USB-SCSI bridges
     BUS_TYPE_USB,
     BUS_TYPE_NVME,
     BUS_TYPE_MMC,
-    BUS_TYPE_VIRTIO
+    BUS_TYPE_VIRTIO,
+    // Keep a general ATA for fallback if specific type isn't found
+    BUS_TYPE_ATA // General ATA, used as a fallback if SATA/PATA cannot be determined
 } BusType;
 
 typedef enum {

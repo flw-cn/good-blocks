@@ -233,12 +233,11 @@ end_parsing:
     return result_str; // Caller must free this memory
 }
 
-
 // Populates DeviceInfo from udevadm output (primary for ID_*)
 void populate_device_info_from_udevadm(DeviceInfo* info) {
     char command[MAX_FULL_PATH_LEN + 64];
     snprintf(command, sizeof(command), "udevadm info --query=property --name=%s", info->dev_path);
-    
+
     FILE *fp = popen(command, "r");
     if (fp == NULL) {
         // fprintf(stderr, "Failed to run udevadm command: %s (Error: %s)\n", command, strerror(errno));
@@ -257,21 +256,32 @@ void populate_device_info_from_udevadm(DeviceInfo* info) {
             const char* key = line;
             const char* value = equals_pos + 1;
 
-            if (strcmp(key, "ID_BUS") == 0) {
-                if (strcmp(value, "ata") == 0) info->bus_type = BUS_TYPE_ATA;
+            // Priority: Check for specific ATA types first
+            if (strcmp(key, "ID_ATA_SATA") == 0 && strcmp(value, "1") == 0) {
+                info->bus_type = BUS_TYPE_SATA;
+            } else if (strcmp(key, "ID_ATA_PATA") == 0 && strcmp(value, "1") == 0) {
+                info->bus_type = BUS_TYPE_PATA;
+            }
+            // Then check for general ID_BUS, but only if more specific ATA types weren't found
+            else if (strcmp(key, "ID_BUS") == 0) {
+                if (strcmp(value, "ata") == 0) {
+                    if (info->bus_type != BUS_TYPE_SATA && info->bus_type != BUS_TYPE_PATA) {
+                        info->bus_type = BUS_TYPE_ATA; // Fallback to general ATA if not already set to specific
+                    }
+                }
                 else if (strcmp(value, "scsi") == 0) info->bus_type = BUS_TYPE_SCSI;
                 else if (strcmp(value, "usb") == 0) info->bus_type = BUS_TYPE_USB;
                 else if (strcmp(value, "nvme") == 0) info->bus_type = BUS_TYPE_NVME;
                 else if (strcmp(value, "mmc") == 0) info->bus_type = BUS_TYPE_MMC;
                 else if (strcmp(value, "virtio") == 0) info->bus_type = BUS_TYPE_VIRTIO;
-                else info->bus_type = BUS_TYPE_UNKNOWN;
+                else if (info->bus_type == BUS_TYPE_UNKNOWN) info->bus_type = BUS_TYPE_UNKNOWN; // Keep unknown if no specific match
             } else if (strcmp(key, "ID_MODEL") == 0) {
                 strncpy(info->model, value, sizeof(info->model)-1);
                 info->model[sizeof(info->model)-1] = '\0';
-            } else if (strcmp(key, "ID_VENDOR_FROM_DATABASE") == 0) { // More specific vendor from udev database
+            } else if (strcmp(key, "ID_VENDOR_FROM_DATABASE") == 0) {
                 strncpy(info->vendor, value, sizeof(info->vendor)-1);
                 info->vendor[sizeof(info->vendor)-1] = '\0';
-            } else if (strcmp(key, "ID_VENDOR") == 0 && strlen(info->vendor) == 0) { // Fallback vendor
+            } else if (strcmp(key, "ID_VENDOR") == 0 && strlen(info->vendor) == 0) {
                 strncpy(info->vendor, value, sizeof(info->vendor)-1);
                 info->vendor[sizeof(info->vendor)-1] = '\0';
             } else if (strcmp(key, "ID_SERIAL") == 0) {
@@ -281,19 +291,20 @@ void populate_device_info_from_udevadm(DeviceInfo* info) {
                 strncpy(info->firmware_rev, value, sizeof(info->firmware_rev)-1);
                 info->firmware_rev[sizeof(info->firmware_rev)-1] = '\0';
             } else if (strcmp(key, "DEVPATH") == 0) {
-                // Parse DEVPATH for bus type if ID_BUS is not strong enough
-                // Example: /devices/pci0000:00/0000:00:17.0/ata2/host1/target1:0:0/1:0:0:0/block/sda
-                if (info->bus_type == BUS_TYPE_UNKNOWN) {
+                // Parse DEVPATH for bus type as a fallback if ID_BUS didn't give a good answer
+                // Only if bus_type is still generic ATA or unknown
+                if (info->bus_type == BUS_TYPE_UNKNOWN || info->bus_type == BUS_TYPE_ATA) {
                     if (strstr(value, "/ata") != NULL) {
-                        info->bus_type = BUS_TYPE_ATA;
-                    } else if (strstr(value, "/usb") != NULL || strstr(value, "/host") != NULL) { // host usually means scsi_host for USB drives too
-                        // check if the subsystem is "usb" or "scsi" (for USB-SCSI bridge devices)
+                        // We will rely on ID_ATA_SATA/PATA for actual ATA differentiation,
+                        // so this just sets it to general ATA if nothing more specific is found.
+                        if (info->bus_type == BUS_TYPE_UNKNOWN) info->bus_type = BUS_TYPE_ATA;
+                    } else if (strstr(value, "/usb") != NULL || strstr(value, "/host") != NULL) {
                         char sysfs_subsystem_path[MAX_FULL_PATH_LEN];
                         snprintf(sysfs_subsystem_path, sizeof(sysfs_subsystem_path), "/sys/block/%s/device/subsystem", info->main_dev_name);
                         char* subsystem_val = read_sysfs_attribute(sysfs_subsystem_path);
                         if (subsystem_val) {
                             if (strcmp(subsystem_val, "usb") == 0) info->bus_type = BUS_TYPE_USB;
-                            else if (strcmp(subsystem_val, "scsi") == 0) info->bus_type = BUS_TYPE_SCSI; // Covers USB-SCSI bridges
+                            else if (strcmp(subsystem_val, "scsi") == 0) info->bus_type = BUS_TYPE_SCSI;
                             free(subsystem_val);
                         }
                     } else if (strstr(value, "/nvme") != NULL) {
@@ -307,20 +318,21 @@ void populate_device_info_from_udevadm(DeviceInfo* info) {
     }
     pclose(fp);
 
-    // Final fallback for ID_BUS if not explicitly found by udevadm properties, try sysfs directly
-    if (info->bus_type == BUS_TYPE_UNKNOWN) {
+    // Final fallback to sysfs for subsystem if bus type is still unknown or general ATA
+    if (info->bus_type == BUS_TYPE_UNKNOWN || info->bus_type == BUS_TYPE_ATA) {
         char sysfs_subsystem_path[MAX_FULL_PATH_LEN];
         snprintf(sysfs_subsystem_path, sizeof(sysfs_subsystem_path), "/sys/block/%s/device/subsystem", info->main_dev_name);
         char* subsystem_value = read_sysfs_attribute(sysfs_subsystem_path);
         if (subsystem_value) {
-            if (strcmp(subsystem_value, "ata") == 0) info->bus_type = BUS_TYPE_ATA;
-            else if (strcmp(subsystem_value, "scsi") == 0) info->bus_type = BUS_TYPE_SCSI;
+            if (strcmp(subsystem_value, "ata") == 0) {
+                // If we get "ata" from sysfs and no specific SATA/PATA ID was found
+                if (info->bus_type == BUS_TYPE_UNKNOWN) info->bus_type = BUS_TYPE_ATA;
+            } else if (strcmp(subsystem_value, "scsi") == 0) info->bus_type = BUS_TYPE_SCSI;
             else if (strcmp(subsystem_value, "usb") == 0) info->bus_type = BUS_TYPE_USB;
             free(subsystem_value);
         }
     }
 }
-
 
 // Populates DeviceInfo from sysfs (for total sectors, block sizes, rotational)
 void populate_device_info_from_sysfs(DeviceInfo* info) {

@@ -19,12 +19,14 @@ const char* get_device_type_str(DeviceType type) {
 // Helper function to print bus type
 const char* get_bus_type_str(BusType type) {
     switch (type) {
-        case BUS_TYPE_ATA: return "ATA (SATA/PATA)";
-        case BUS_TYPE_SCSI: return "SCSI (SAS/USB-SCSI)"; // Clarified USB-SCSI
+        case BUS_TYPE_SATA: return "SATA";
+        case BUS_TYPE_PATA: return "PATA";
+        case BUS_TYPE_SCSI: return "SCSI (SAS/USB-SCSI)";
         case BUS_TYPE_USB: return "USB";
         case BUS_TYPE_NVME: return "NVMe";
         case BUS_TYPE_MMC: return "MMC";
         case BUS_TYPE_VIRTIO: return "Virtio";
+        case BUS_TYPE_ATA: return "ATA (General)"; // General ATA fallback
         case BUS_TYPE_UNKNOWN:
         default: return "未知";
     }
