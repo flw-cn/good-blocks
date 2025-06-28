@@ -8,6 +8,7 @@ void init_device_info(DeviceInfo* info) {
     memset(info, 0, sizeof(DeviceInfo)); // Zero out the entire structure
     info->type = DEVICE_TYPE_UNKNOWN;
     info->bus_type = BUS_TYPE_UNKNOWN; // Initialize new bus type
+    info->rotation_rate_rpm = 0; // Initialize new RPM field
 }
 
 // Print DeviceInfo structure content
@@ -70,8 +71,9 @@ void print_device_info(const DeviceInfo* info) {
         printf("固件版本: 无法获取\n");
     }
 
-    if (info->type == DEVICE_TYPE_HDD && strlen(info->rotation_rate) > 0) {
-        printf("转速: %s RPM\n", info->rotation_rate);
+    // Updated: Print integer RPM
+    if (info->type == DEVICE_TYPE_HDD && info->rotation_rate_rpm > 0) {
+        printf("转速: %d RPM\n", info->rotation_rate_rpm);
     } else if (info->type == DEVICE_TYPE_HDD) {
         printf("转速: 无法获取\n");
     }

@@ -6,10 +6,10 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <errno.h>
-#include <unistd.h>     // For readlink, access
-#include <sys/sysmacros.h> // For major(), minor(), makedev()
-#include <libgen.h>     // For dirname() and basename()
-#include <ctype.h>      // For isspace(), isdigit()
+#include <unistd.h>
+#include <sys/sysmacros.h>
+#include <libgen.h>
+#include <ctype.h>
 
 // Path max and buffer len defines (ensure consistent with device_info.h)
 #ifndef PATH_MAX
@@ -118,14 +118,13 @@ char* get_main_device_name(const char* dev_path) {
 }
 
 
-// New function: Runs smartctl and captures its entire output
+// Runs smartctl and captures its entire output
 char* run_smartctl(const char* dev_path) {
     char command[MAX_FULL_PATH_LEN + 32]; // smartctl -a /dev/device
     snprintf(command, sizeof(command), "sudo smartctl -a %s", dev_path);
 
     FILE *fp = popen(command, "r");
     if (fp == NULL) {
-        // fprintf(stderr, "Warning: Failed to run smartctl for %s\n", dev_path);
         return NULL;
     }
 
@@ -150,7 +149,7 @@ char* run_smartctl(const char* dev_path) {
     return full_output; // Caller must free this
 }
 
-// New function: Parses a string for multiple potential keys (from smartctl or udevadm output)
+// Parses a string for multiple potential keys (from smartctl or udevadm output)
 // This is a more generic parser for "KEY: VALUE" or "KEY=VALUE" lines.
 // key_prefix_format: The format string for the key, e.g., "Rotation Rate:", "ID_BUS=", "Serial Number:"
 // ...: variable arguments for potential alternative key prefixes (NULL-terminated)
@@ -194,7 +193,6 @@ char* get_string_from_output(const char* output_str, const char* key_prefix_form
                 }
                 
                 char* value_end = value_start;
-                // Continue as long as it's not null terminator, not newline, and not a char we explicitly want to stop at
                 // For general strings, allow alphanumeric, punctuation, and spaces.
                 while (*value_end && *value_end != '\n' && (isalnum(*value_end) || ispunct(*value_end) || isspace(*value_end))) {
                     value_end++;
@@ -226,14 +224,13 @@ end_parsing:
 }
 
 
-// New function: Populates DeviceInfo from udevadm output (primary for ID_*)
+// Populates DeviceInfo from udevadm output (primary for ID_*)
 void populate_device_info_from_udevadm(DeviceInfo* info) {
     char command[MAX_FULL_PATH_LEN + 64];
     snprintf(command, sizeof(command), "udevadm info --query=property --name=%s", info->dev_path);
     
     FILE *fp = popen(command, "r");
     if (fp == NULL) {
-        // fprintf(stderr, "Warning: Failed to run udevadm for %s\n", info->dev_path);
         return;
     }
 
@@ -268,15 +265,13 @@ void populate_device_info_from_udevadm(DeviceInfo* info) {
             } else if (strcmp(key, "ID_REVISION") == 0) {
                 strncpy(info->firmware_rev, value, sizeof(info->firmware_rev)-1);
             }
-            // Note: udevadm often provides ID_TYPE=disk or ID_FS_TYPE for partitions.
-            // DeviceType will be determined later using rotational and bus_type
         }
     }
     pclose(fp);
 }
 
 
-// Adjusted function: Populates DeviceInfo from sysfs (for total sectors, block sizes, rotational)
+// Populates DeviceInfo from sysfs (for total sectors, block sizes, rotational)
 void populate_device_info_from_sysfs(DeviceInfo* info) {
     char sysfs_base_path[MAX_FULL_PATH_LEN];
     snprintf(sysfs_base_path, sizeof(sysfs_base_path), "/sys/block/%s", info->main_dev_name);
@@ -404,14 +399,22 @@ void populate_device_info_from_sysfs(DeviceInfo* info) {
 }
 
 
-// New function: Populates DeviceInfo from smartctl output string (for RPM and serial fallback)
+// Populates DeviceInfo from smartctl output string (for RPM and serial fallback)
 void populate_device_info_from_smartctl_output(DeviceInfo* info, const char* smartctl_output) {
     // Get RPM if it's an HDD
-    if (info->type == DEVICE_TYPE_HDD && strlen(info->rotation_rate) == 0) {
-        char* rpm_value = get_string_from_output(smartctl_output, "Rotation Rate:", NULL);
-        if (rpm_value) {
-            strncpy(info->rotation_rate, rpm_value, sizeof(info->rotation_rate)-1);
-            free(rpm_value);
+    if (info->type == DEVICE_TYPE_HDD && info->rotation_rate_rpm == 0) { // Check if RPM is not yet populated
+        char* rpm_str_value = get_string_from_output(smartctl_output, "Rotation Rate:", NULL);
+        if (rpm_str_value) {
+            // Find the first non-digit character (e.g., ' ') and null-terminate there
+            char* endptr;
+            for (endptr = rpm_str_value; *endptr != '\0'; ++endptr) {
+                if (!isdigit(*endptr)) {
+                    *endptr = '\0'; // Truncate at first non-digit
+                    break;
+                }
+            }
+            info->rotation_rate_rpm = strtol(rpm_str_value, NULL, 10);
+            free(rpm_str_value);
         }
     }
 
@@ -427,6 +430,4 @@ void populate_device_info_from_smartctl_output(DeviceInfo* info, const char* sma
             free(serial_value);
         }
     }
-    // Could also add model/vendor/firmware fallbacks from smartctl if udevadm/sysfs miss them.
-    // E.g., info->model if empty, check "Device Model:"
 }

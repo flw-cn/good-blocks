@@ -9,7 +9,6 @@
 #define PATH_MAX 4096
 #endif
 #define MAX_BUFFER_LEN 128 // Ensure this is defined appropriately
-#define MAX_FULL_PATH_LEN 4096
 
 // Device type enum
 typedef enum {
@@ -52,7 +51,8 @@ typedef struct {
     char firmware_rev[MAX_BUFFER_LEN]; // Firmware revision
 
     // HDD specific
-    char rotation_rate[MAX_BUFFER_LEN]; // RPM (from smartctl for HDD)
+    // char rotation_rate[MAX_BUFFER_LEN]; // Old: RPM (from smartctl for HDD)
+    int rotation_rate_rpm;           // New: RPM as an integer (from smartctl for HDD)
     
 } DeviceInfo;
 
@@ -60,4 +60,4 @@ typedef struct {
 void init_device_info(DeviceInfo* info);
 void print_device_info(const DeviceInfo* info);
 
-#endif // DEVICE_INFO_Hendif // DEVICE_INFO_H
+#endif // DEVICE_INFO_H
