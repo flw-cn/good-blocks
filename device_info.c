@@ -1,0 +1,65 @@
+#include "device_info.h"
+#include <stdio.h>
+#include <string.h>
+
+// Initialize DeviceInfo structure with default values
+void init_device_info(DeviceInfo* info) {
+    memset(info, 0, sizeof(DeviceInfo)); // Zero out the entire structure
+    info->type = DEVICE_TYPE_UNKNOWN;
+}
+
+// Print DeviceInfo structure content
+void print_device_info(const DeviceInfo* info) {
+    printf("--- 设备信息 (%s) (主设备: %s) ---\n", info->dev_path, info->main_dev_name);
+
+    printf("类型: ");
+    switch (info->type) {
+        case DEVICE_TYPE_HDD: printf("HDD\n"); break;
+        case DEVICE_TYPE_SATA_SSD: printf("SATA/SAS SSD\n"); break;
+        case DEVICE_TYPE_NVME_SSD: printf("NVMe SSD\n"); break;
+        case DEVICE_TYPE_USB_STORAGE: printf("USB 存储设备\n"); break;
+        case DEVICE_TYPE_UNKNOWN:
+        default: printf("未知\n"); break;
+    }
+
+    if (info->total_sectors > 0 && info->capacity_gb > 0) {
+        printf("总容量: %.2f GB\n", info->capacity_gb);
+    } else {
+        printf("总容量: 无法获取\n");
+    }
+    printf("扇区数: %llu\n", info->total_sectors);
+    printf("逻辑块大小: %llu bytes\n", info->logical_block_size);
+    printf("物理块大小: %llu bytes\n", info->physical_block_size);
+
+    if (strlen(info->model) > 0) {
+        printf("型号: %s\n", info->model);
+    } else {
+        printf("型号: 无法获取\n");
+    }
+
+    if (strlen(info->vendor) > 0) {
+        printf("厂商: %s\n", info->vendor);
+    } else {
+        printf("厂商: 无法获取\n");
+    }
+
+    if (strlen(info->serial) > 0) {
+        printf("序列号: %s\n", info->serial);
+    } else {
+        printf("序列号: 无法获取\n");
+    }
+
+    if (strlen(info->firmware_rev) > 0) {
+        printf("固件版本: %s\n", info->firmware_rev);
+    } else {
+        printf("固件版本: 无法获取\n");
+    }
+
+    if (info->type == DEVICE_TYPE_HDD && strlen(info->rotation_rate) > 0) {
+        printf("转速: %s RPM\n", info->rotation_rate);
+    } else if (info->type == DEVICE_TYPE_HDD) {
+        printf("转速: 无法获取\n");
+    }
+
+    printf("---\n");
+}
