@@ -1,82 +1,63 @@
 // device_info.c
 #include "device_info.h"
 #include <stdio.h>
-#include <string.h>
+#include <string.h> // For memset and strncpy
 
-// Initialize DeviceInfo structure with default values
-void init_device_info(DeviceInfo* info) {
-    memset(info, 0, sizeof(DeviceInfo)); // Zero out the entire structure
-    info->type = DEVICE_TYPE_UNKNOWN;
-    info->bus_type = BUS_TYPE_UNKNOWN; // Initialize new bus type
-    info->rotation_rate_rpm = 0; // Initialize new RPM field
+// Helper function to print device type
+const char* get_device_type_str(DeviceType type) {
+    switch (type) {
+        case DEVICE_TYPE_HDD: return "HDD";
+        case DEVICE_TYPE_SATA_SSD: return "SATA SSD";
+        case DEVICE_TYPE_NVME_SSD: return "NVMe SSD";
+        case DEVICE_TYPE_USB_STORAGE: return "USB Storage";
+        case DEVICE_TYPE_UNKNOWN_SSD: return "未知 SSD"; // Updated string for clarity
+        case DEVICE_TYPE_UNKNOWN:
+        default: return "未知";
+    }
 }
 
-// Print DeviceInfo structure content
+// Helper function to print bus type
+const char* get_bus_type_str(BusType type) {
+    switch (type) {
+        case BUS_TYPE_ATA: return "ATA (SATA/PATA)";
+        case BUS_TYPE_SCSI: return "SCSI (SAS/USB-SCSI)"; // Clarified USB-SCSI
+        case BUS_TYPE_USB: return "USB";
+        case BUS_TYPE_NVME: return "NVMe";
+        case BUS_TYPE_MMC: return "MMC";
+        case BUS_TYPE_VIRTIO: return "Virtio";
+        case BUS_TYPE_UNKNOWN:
+        default: return "未知";
+    }
+}
+
+// Initializes a DeviceInfo struct
+void initialize_device_info(DeviceInfo* info, const char* dev_path) {
+    memset(info, 0, sizeof(DeviceInfo));
+    strncpy(info->dev_path, dev_path, sizeof(info->dev_path) - 1);
+    info->dev_path[sizeof(info->dev_path) - 1] = '\0';
+    info->bus_type = BUS_TYPE_UNKNOWN;
+    info->type = DEVICE_TYPE_UNKNOWN;
+}
+
+// Prints the collected device information
 void print_device_info(const DeviceInfo* info) {
     printf("--- 设备信息 (%s) (主设备: %s) ---\n", info->dev_path, info->main_dev_name);
-
-    printf("类型: ");
-    switch (info->type) {
-        case DEVICE_TYPE_HDD: printf("HDD\n"); break;
-        case DEVICE_TYPE_SATA_SSD: printf("SATA/SAS SSD\n"); break;
-        case DEVICE_TYPE_NVME_SSD: printf("NVMe SSD\n"); break;
-        case DEVICE_TYPE_USB_STORAGE: printf("USB 存储设备\n"); break;
-        case DEVICE_TYPE_UNKNOWN:
-        default: printf("未知\n"); break;
-    }
-
-    printf("接口类型: ");
-    switch (info->bus_type) {
-        case BUS_TYPE_ATA: printf("ATA (SATA/PATA)\n"); break;
-        case BUS_TYPE_SCSI: printf("SCSI (SAS/USB-SCSI)\n"); break; // USB devices often appear under SCSI subsystem
-        case BUS_TYPE_USB: printf("USB\n"); break;
-        case BUS_TYPE_NVME: printf("NVMe\n"); break;
-        case BUS_TYPE_MMC: printf("MMC/SD\n"); break;
-        case BUS_TYPE_VIRTIO: printf("VirtIO (Virtual)\n"); break;
-        case BUS_TYPE_UNKNOWN:
-        default: printf("未知\n"); break;
-    }
-
-
-    if (info->total_sectors > 0 && info->capacity_gb > 0) {
-        printf("总容量: %.2f GB\n", info->capacity_gb);
-    } else {
-        printf("总容量: 无法获取\n");
+    printf("类型: %s\n", get_device_type_str(info->type));
+    printf("接口类型: %s\n", get_bus_type_str(info->bus_type));
+    printf("总容量: %.2f GB\n", info->capacity_gb);
+    // Print nominal capacity if available
+    if (strlen(info->nominal_capacity_str) > 0) {
+        printf("标称容量: %s\n", info->nominal_capacity_str);
     }
     printf("扇区数: %llu\n", info->total_sectors);
-    printf("逻辑块大小: %llu bytes\n", info->logical_block_size);
-    printf("物理块大小: %llu bytes\n", info->physical_block_size);
-
-    if (strlen(info->model) > 0) {
-        printf("型号: %s\n", info->model);
-    } else {
-        printf("型号: 无法获取\n");
-    }
-
-    if (strlen(info->vendor) > 0) {
-        printf("厂商: %s\n", info->vendor);
-    } else {
-        printf("厂商: 无法获取\n");
-    }
-
-    if (strlen(info->serial) > 0) {
-        printf("序列号: %s\n", info->serial);
-    } else {
-        printf("序列号: 无法获取\n");
-    }
-
-    if (strlen(info->firmware_rev) > 0) {
-        printf("固件版本: %s\n", info->firmware_rev);
-    } else {
-        printf("固件版本: 无法获取\n");
-    }
-
-    // Updated: Print integer RPM
+    printf("逻辑块大小: %u bytes\n", info->logical_block_size);
+    printf("物理块大小: %u bytes\n", info->physical_block_size);
+    printf("型号: %s\n", strlen(info->model) > 0 ? info->model : "未知");
+    printf("厂商: %s\n", strlen(info->vendor) > 0 ? info->vendor : "未知");
+    printf("序列号: %s\n", strlen(info->serial) > 0 ? info->serial : "未知");
+    printf("固件版本: %s\n", strlen(info->firmware_rev) > 0 ? info->firmware_rev : "未知");
     if (info->type == DEVICE_TYPE_HDD && info->rotation_rate_rpm > 0) {
         printf("转速: %d RPM\n", info->rotation_rate_rpm);
-    } else if (info->type == DEVICE_TYPE_HDD) {
-        printf("转速: 无法获取\n");
     }
-
     printf("---\n");
 }
