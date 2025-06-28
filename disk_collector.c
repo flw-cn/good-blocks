@@ -245,6 +245,9 @@ void populate_device_info_from_udevadm(DeviceInfo* info) {
     }
 
     char line[MAX_BUFFER_LEN];
+    // Initialize bus_type to UNKNOWN before parsing
+    info->bus_type = BUS_TYPE_UNKNOWN;
+
     while (fgets(line, sizeof(line), fp) != NULL) {
         // Remove trailing newline
         line[strcspn(line, "\n")] = 0;
@@ -256,26 +259,54 @@ void populate_device_info_from_udevadm(DeviceInfo* info) {
             const char* key = line;
             const char* value = equals_pos + 1;
 
-            // Priority: Check for specific ATA types first
-            if (strcmp(key, "ID_ATA_SATA") == 0 && strcmp(value, "1") == 0) {
-                info->bus_type = BUS_TYPE_SATA;
-            } else if (strcmp(key, "ID_ATA_PATA") == 0 && strcmp(value, "1") == 0) {
-                info->bus_type = BUS_TYPE_PATA;
+            // --- Priority Order for Bus Type ---
+            // 1. SYNO_DEV_DISKPORTTYPE (Synology specific, most direct for SATA)
+            if (strcmp(key, "SYNO_DEV_DISKPORTTYPE") == 0) {
+                if (strcmp(value, "SATA") == 0) info->bus_type = BUS_TYPE_SATA;
+                // Add other SYNO_DEV_DISKPORTTYPE values if known (e.g., PATA, SAS)
+                // else if (strcmp(value, "PATA") == 0) info->bus_type = BUS_TYPE_PATA;
             }
-            // Then check for general ID_BUS, but only if more specific ATA types weren't found
-            else if (strcmp(key, "ID_BUS") == 0) {
-                if (strcmp(value, "ata") == 0) {
-                    if (info->bus_type != BUS_TYPE_SATA && info->bus_type != BUS_TYPE_PATA) {
-                        info->bus_type = BUS_TYPE_ATA; // Fallback to general ATA if not already set to specific
-                    }
+            // 2. ID_ATA_SATA / ID_ATA_PATA (Standard ATA detection)
+            else if (strcmp(key, "ID_ATA_SATA") == 0 && strcmp(value, "1") == 0) {
+                // Only set if SYNO_DEV_DISKPORTTYPE didn't already classify it (SATA)
+                if (info->bus_type != BUS_TYPE_SATA) {
+                    info->bus_type = BUS_TYPE_SATA;
                 }
-                else if (strcmp(value, "scsi") == 0) info->bus_type = BUS_TYPE_SCSI;
-                else if (strcmp(value, "usb") == 0) info->bus_type = BUS_TYPE_USB;
-                else if (strcmp(value, "nvme") == 0) info->bus_type = BUS_TYPE_NVME;
-                else if (strcmp(value, "mmc") == 0) info->bus_type = BUS_TYPE_MMC;
-                else if (strcmp(value, "virtio") == 0) info->bus_type = BUS_TYPE_VIRTIO;
-                else if (info->bus_type == BUS_TYPE_UNKNOWN) info->bus_type = BUS_TYPE_UNKNOWN; // Keep unknown if no specific match
-            } else if (strcmp(key, "ID_MODEL") == 0) {
+            } else if (strcmp(key, "ID_ATA_PATA") == 0 && strcmp(value, "1") == 0) {
+                 // Only set if SYNO_DEV_DISKPORTTYPE didn't already classify it (PATA)
+                if (info->bus_type != BUS_TYPE_PATA) {
+                    info->bus_type = BUS_TYPE_PATA;
+                }
+            }
+            // 3. PHYSDEVBUS (Physical bus type, e.g., scsi, usb)
+            else if (strcmp(key, "PHYSDEVBUS") == 0) {
+                // Only use PHYSDEVBUS if bus_type is still UNKNOWN or a less specific ATA
+                if (info->bus_type == BUS_TYPE_UNKNOWN || info->bus_type == BUS_TYPE_ATA) {
+                    if (strcmp(value, "scsi") == 0) info->bus_type = BUS_TYPE_SCSI;
+                    else if (strcmp(value, "usb") == 0) info->bus_type = BUS_TYPE_USB;
+                    // Note: 'ata' might also appear here, but we prioritize ID_ATA_SATA/PATA
+                    // If we get 'ata' here and no specific ATA ID, it defaults to BUS_TYPE_ATA below
+                }
+            }
+            // 4. ID_BUS (General bus type, fallback)
+            else if (strcmp(key, "ID_BUS") == 0) {
+                // Only use ID_BUS if a more specific bus type hasn't been set yet
+                if (info->bus_type == BUS_TYPE_UNKNOWN || info->bus_type == BUS_TYPE_ATA) { // BUS_TYPE_ATA is now a less specific fallback
+                    if (strcmp(value, "ata") == 0) {
+                        // If ID_BUS says 'ata', but we haven't found specific SATA/PATA,
+                        // set it to general ATA (if it's not already SATA/PATA)
+                        if (info->bus_type != BUS_TYPE_SATA && info->bus_type != BUS_TYPE_PATA) {
+                            info->bus_type = BUS_TYPE_ATA;
+                        }
+                    }
+                    else if (strcmp(value, "nvme") == 0) info->bus_type = BUS_TYPE_NVME;
+                    else if (strcmp(value, "mmc") == 0) info->bus_type = BUS_TYPE_MMC;
+                    else if (strcmp(value, "virtio") == 0) info->bus_type = BUS_TYPE_VIRTIO;
+                    // For 'scsi' or 'usb' from ID_BUS, PHYSDEVBUS should usually provide it first
+                }
+            }
+            // --- Other Device Info Fields ---
+            else if (strcmp(key, "ID_MODEL") == 0) {
                 strncpy(info->model, value, sizeof(info->model)-1);
                 info->model[sizeof(info->model)-1] = '\0';
             } else if (strcmp(key, "ID_VENDOR_FROM_DATABASE") == 0) {
@@ -290,45 +321,44 @@ void populate_device_info_from_udevadm(DeviceInfo* info) {
             } else if (strcmp(key, "ID_REVISION") == 0) {
                 strncpy(info->firmware_rev, value, sizeof(info->firmware_rev)-1);
                 info->firmware_rev[sizeof(info->firmware_rev)-1] = '\0';
-            } else if (strcmp(key, "DEVPATH") == 0) {
-                // Parse DEVPATH for bus type as a fallback if ID_BUS didn't give a good answer
-                // Only if bus_type is still generic ATA or unknown
-                if (info->bus_type == BUS_TYPE_UNKNOWN || info->bus_type == BUS_TYPE_ATA) {
-                    if (strstr(value, "/ata") != NULL) {
-                        // We will rely on ID_ATA_SATA/PATA for actual ATA differentiation,
-                        // so this just sets it to general ATA if nothing more specific is found.
-                        if (info->bus_type == BUS_TYPE_UNKNOWN) info->bus_type = BUS_TYPE_ATA;
-                    } else if (strstr(value, "/usb") != NULL || strstr(value, "/host") != NULL) {
-                        char sysfs_subsystem_path[MAX_FULL_PATH_LEN];
-                        snprintf(sysfs_subsystem_path, sizeof(sysfs_subsystem_path), "/sys/block/%s/device/subsystem", info->main_dev_name);
-                        char* subsystem_val = read_sysfs_attribute(sysfs_subsystem_path);
-                        if (subsystem_val) {
-                            if (strcmp(subsystem_val, "usb") == 0) info->bus_type = BUS_TYPE_USB;
-                            else if (strcmp(subsystem_val, "scsi") == 0) info->bus_type = BUS_TYPE_SCSI;
-                            free(subsystem_val);
-                        }
-                    } else if (strstr(value, "/nvme") != NULL) {
+            }
+            // DEVPATH fallback logic for bus_type is less critical now due to direct ID checks
+            // but keep it for robustness if other IDs fail.
+            else if (strcmp(key, "DEVPATH") == 0) {
+                // Only use DEVPATH if bus_type is still UNKNOWN
+                if (info->bus_type == BUS_TYPE_UNKNOWN) {
+                    if (strstr(value, "/nvme") != NULL) {
                         info->bus_type = BUS_TYPE_NVME;
+                    } else if (strstr(value, "/usb") != NULL) {
+                        info->bus_type = BUS_TYPE_USB;
                     } else if (strstr(value, "/mmc") != NULL) {
                         info->bus_type = BUS_TYPE_MMC;
+                    } else if (strstr(value, "/ata") != NULL) {
+                        // If DEVPATH suggests ATA, but no specific SATA/PATA ID was found,
+                        // default to general ATA.
+                        info->bus_type = BUS_TYPE_ATA;
                     }
+                    // For SCSI, PHYSDEVBUS should handle it better.
                 }
             }
         }
     }
     pclose(fp);
 
-    // Final fallback to sysfs for subsystem if bus type is still unknown or general ATA
+    // Final fallback to sysfs for subsystem if bus type is still UNKNOWN or general ATA
+    // This is useful for cases where udevadm properties are insufficient
     if (info->bus_type == BUS_TYPE_UNKNOWN || info->bus_type == BUS_TYPE_ATA) {
         char sysfs_subsystem_path[MAX_FULL_PATH_LEN];
         snprintf(sysfs_subsystem_path, sizeof(sysfs_subsystem_path), "/sys/block/%s/device/subsystem", info->main_dev_name);
         char* subsystem_value = read_sysfs_attribute(sysfs_subsystem_path);
         if (subsystem_value) {
             if (strcmp(subsystem_value, "ata") == 0) {
-                // If we get "ata" from sysfs and no specific SATA/PATA ID was found
                 if (info->bus_type == BUS_TYPE_UNKNOWN) info->bus_type = BUS_TYPE_ATA;
-            } else if (strcmp(subsystem_value, "scsi") == 0) info->bus_type = BUS_TYPE_SCSI;
-            else if (strcmp(subsystem_value, "usb") == 0) info->bus_type = BUS_TYPE_USB;
+            } else if (strcmp(subsystem_value, "scsi") == 0) {
+                if (info->bus_type == BUS_TYPE_UNKNOWN) info->bus_type = BUS_TYPE_SCSI; // If not already SCSI from PHYSDEVBUS
+            } else if (strcmp(subsystem_value, "usb") == 0) {
+                if (info->bus_type == BUS_TYPE_UNKNOWN) info->bus_type = BUS_TYPE_USB;
+            }
             free(subsystem_value);
         }
     }
