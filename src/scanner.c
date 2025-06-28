@@ -638,7 +638,7 @@ int scan_device(const ScanOptions* opts) {
     }
 
     // 打印扫描头部信息
-    print_scan_header(opts, start_sector, end_sector, &geometry);
+    print_scan_header(opts, start_sector, end_sector);
 
     // 打开设备进行扫描
     int fd = open_device_for_scan(opts->device);
