@@ -63,6 +63,7 @@ int should_retest_sector(const TimeCategories* categories, int time_ms);
 // 输出和统计函数
 void print_time_category(TimeCategoryType type, int time_ms);
 void print_time_statistics(const TimeCategories* categories);
+void print_time_categories_config(const TimeCategories* categories);
 const char* get_category_name_str(TimeCategoryType type);
 const char* get_category_color_str(TimeCategoryType type);
 

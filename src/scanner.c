@@ -2,6 +2,7 @@
 #include "scanner.h"
 #include "device_info/device_info.h"
 #include "time_categories.h"
+#include "retest.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -33,7 +34,8 @@ static int perform_sector_read(int fd, unsigned long sector, size_t block_size,
                               char* buffer, DeviceGeometry* geometry);
 static int handle_suspect_block(int fd, unsigned long sector, size_t block_size,
                                char* buffer, DeviceGeometry* geometry,
-                               const ScanOptions* opts, FILE* log_file);
+                               const ScanOptions* opts, FILE* log_file,
+                               const char* device_path);
 static void generate_sample_positions(unsigned long start_sector, unsigned long end_sector,
                                      double sample_ratio, int random_sampling,
                                      unsigned long** positions, unsigned long* count);
@@ -215,10 +217,36 @@ static void update_progress(ScanProgress* progress, unsigned long current_sector
     // 更新百分比
     progress->progress_percent = (double)progress->sectors_scanned / progress->total_sectors * 100;
 
-    // 每100个扇区更新一次显示（避免过于频繁）
-    if (progress->sectors_scanned % 100 == 0 ||
-        category == TIME_CATEGORY_POOR || category == TIME_CATEGORY_SEVERE) {
+    // 智能更新显示频率
+    static unsigned long last_displayed_sector = 0;
+    static double last_displayed_percent = 0.0;
+
+    int should_update = 0;
+
+    // 条件1：百分比变化超过0.1%
+    if (progress->progress_percent - last_displayed_percent >= 0.1) {
+        should_update = 1;
+    }
+
+    // 条件2：发现问题扇区（欠佳或更差）
+    if (category >= TIME_CATEGORY_POOR) {
+        should_update = 1;
+    }
+
+    // 条件3：距离上次显示超过1000个扇区
+    if (current_sector - last_displayed_sector >= 1000) {
+        should_update = 1;
+    }
+
+    // 条件4：第一次更新或最后一个扇区
+    if (last_displayed_sector == 0 || progress->sectors_scanned == progress->total_sectors) {
+        should_update = 1;
+    }
+
+    if (should_update) {
         print_progress_line(progress);
+        last_displayed_sector = current_sector;
+        last_displayed_percent = progress->progress_percent;
     }
 }
 
@@ -312,59 +340,50 @@ static int perform_sector_read(int fd, unsigned long sector, size_t block_size,
  */
 static int handle_suspect_block(int fd, unsigned long sector, size_t block_size,
                                char* buffer, DeviceGeometry* geometry,
-                               const ScanOptions* opts, FILE* log_file) {
+                               const ScanOptions* opts, FILE* log_file,
+                               const char* device_path) {
     if (opts->suspect_retries <= 0) {
         return -1;  // 不进行重测
     }
 
-    printf("\n\033[33m【可疑块检测】\033[m扇区 %lu 读取时间异常，开始重测...\n", sector);
+    // 配置重测参数
+    RetestConfig retest_config;
+    init_retest_config(&retest_config);
 
-    int success_count = 0;
-    int total_time = 0;
+    // 从扫描选项配置重测参数
+    set_retest_config(&retest_config, opts->suspect_retries, opts->suspect_interval);
 
-    for (int retry = 0; retry < opts->suspect_retries; retry++) {
-        // 等待间隔
-        if (opts->suspect_interval > 0 && retry > 0) {
-            usleep(opts->suspect_interval * 1000);
-        }
+    // 启用静默模式以避免干扰进度条
+    set_retest_silent_mode(&retest_config, 1);
 
-        int read_time = perform_sector_read(fd, sector, block_size, buffer, geometry);
+    // 执行重测
+    RetestResult retest_result;
+    int result = perform_sector_retest(sector, device_path, &retest_config, &retest_result);
 
-        if (read_time >= 0) {
-            success_count++;
-            total_time += read_time;
-
-            printf("\033[33m【重测 %d/%d】\033[m扇区 %lu: %d ms\n",
-                   retry + 1, opts->suspect_retries, sector, read_time);
-
-            // 记录重测结果到日志
+    if (result == 0) {
+        if (retest_result.final_category == TIME_CATEGORY_DAMAGED) {
+            // 确认为坏道
+            if (log_file) {
+                log_sector_result(log_file, sector, -1, TIME_CATEGORY_DAMAGED, "重测确认坏道");
+            }
+            return -1;
+        } else {
+            // 重测通过，返回平均时间
             if (log_file) {
                 char notes[128];
-                snprintf(notes, sizeof(notes), "重测%d/%d", retry + 1, opts->suspect_retries);
-                log_sector_result(log_file, sector, read_time,
+                snprintf(notes, sizeof(notes), "重测通过,平均%dms", retest_result.average_time);
+                log_sector_result(log_file, sector, retest_result.average_time,
                                 TIME_CATEGORY_NORMAL, notes);
             }
-        } else {
-            printf("\033[31m【重测 %d/%d】\033[m扇区 %lu: 读取失败\n",
-                   retry + 1, opts->suspect_retries, sector);
-
-            if (log_file) {
-                char notes[128];
-                snprintf(notes, sizeof(notes), "重测%d/%d失败", retry + 1, opts->suspect_retries);
-                log_sector_result(log_file, sector, -1, TIME_CATEGORY_DAMAGED, notes);
-            }
+            return retest_result.average_time;
         }
     }
 
-    if (success_count > 0) {
-        int avg_time = total_time / success_count;
-        printf("\033[32m【重测结果】\033[m扇区 %lu: 成功 %d/%d 次，平均时间 %d ms\n",
-               sector, success_count, opts->suspect_retries, avg_time);
-        return avg_time;
-    } else {
-        printf("\033[31m【重测结果】\033[m扇区 %lu: 全部重测失败，可能存在坏块\n", sector);
-        return -1;
+    // 重测失败
+    if (log_file) {
+        log_sector_result(log_file, sector, -1, TIME_CATEGORY_DAMAGED, "重测失败");
     }
+    return -1;
 }
 
 /**
@@ -537,6 +556,9 @@ int scan_device(const ScanOptions* opts) {
         return -1;
     }
 
+    // 打印时间分类配置
+    print_time_categories_config(&categories);
+
     // 生成采样位置（如果需要）
     unsigned long* sample_positions = NULL;
     unsigned long sample_count = 0;
@@ -617,7 +639,8 @@ int scan_device(const ScanOptions* opts) {
             if (read_time >= suspect_threshold) {
                 // 处理可疑块
                 int retest_time = handle_suspect_block(fd, current_sector, opts->block_size,
-                                                     buffer, &geometry, opts, log_file);
+                                                     buffer, &geometry, opts, log_file,
+                                                     opts->device);
                 if (retest_time >= 0) {
                     read_time = retest_time;
                     category = categorize_time(&categories, read_time);

@@ -18,6 +18,7 @@ static void set_default_categories(TimeCategories* categories, DeviceType device
 static int parse_config_line(const char* line, TimeCategories* categories);
 static void trim_whitespace_inplace(char* str);
 static void print_categories_summary(const TimeCategories* categories);
+void print_time_categories_config(const TimeCategories* categories);
 static const char* get_category_name(TimeCategoryType type);
 static const char* get_category_color(TimeCategoryType type);
 static const char* get_simple_device_type_name(DeviceType device_type);
@@ -266,16 +267,23 @@ static void trim_whitespace_inplace(char* str) {
 static void print_categories_summary(const TimeCategories* categories) {
     if (!categories) return;
 
-    printf("\033[32m【时间分类配置】\033[0m\n");
-    printf("  优秀:     ≤ %d ms\n", categories->excellent_max);
-    printf("  良好:     ≤ %d ms\n", categories->good_max);
-    printf("  正常:     ≤ %d ms\n", categories->normal_max);
-    printf("  一般:     ≤ %d ms\n", categories->general_max);
-    printf("  欠佳:     ≤ %d ms\n", categories->poor_max);
-    printf("  严重:     ≤ %d ms\n", categories->severe_max);
-    printf("  可疑:     > %d ms (触发重测)\n", categories->suspect_threshold);
-    printf("  损坏:     IO错误或重测后仍超阈值\n");
+    printf("\n\033[1;36m【时间分类配置】\033[0m\n");
+    printf("  ● %s优秀\033[0m: ≤ %4d ms \033[90m(响应时间极佳)\033[0m\n", get_category_color(TIME_CATEGORY_EXCELLENT), categories->excellent_max);
+    printf("  ● %s良好\033[0m: ≤ %4d ms \033[90m(响应时间很好)\033[0m\n", get_category_color(TIME_CATEGORY_GOOD), categories->good_max);
+    printf("  ● %s正常\033[0m: ≤ %4d ms \033[90m(响应时间正常)\033[0m\n", get_category_color(TIME_CATEGORY_NORMAL), categories->normal_max);
+    printf("  ● %s一般\033[0m: ≤ %4d ms \033[90m(响应时间开始变慢)\033[0m\n", get_category_color(TIME_CATEGORY_GENERAL), categories->general_max);
+    printf("  ● %s欠佳\033[0m: ≤ %4d ms \033[90m(响应时间较差)\033[0m\n", get_category_color(TIME_CATEGORY_POOR), categories->poor_max);
+    printf("  ● %s严重\033[0m: ≤ %4d ms \033[90m(响应时间很差)\033[0m\n", get_category_color(TIME_CATEGORY_SEVERE), categories->severe_max);
+    printf("  ● %s可疑\033[0m: >  %3d ms \033[90m(需要重测确认)\033[0m\n", get_category_color(TIME_CATEGORY_SUSPECT), categories->suspect_threshold);
+    printf("  ● %s损坏\033[0m: >  %3d ms 或发生 IO 错误 \033[90m(真正的坏道)\033[0m\n", get_category_color(TIME_CATEGORY_DAMAGED));
     printf("\n");
+}
+
+/**
+ * 打印时间分类配置（公共函数）
+ */
+void print_time_categories_config(const TimeCategories* categories) {
+    print_categories_summary(categories);
 }
 
 /**
@@ -508,7 +516,7 @@ int save_time_categories_config(const TimeCategories* categories, const char* co
     fprintf(fp, "# 可疑: 超过此阈值将触发重测\n");
     fprintf(fp, "suspect_threshold=%d\n\n", categories->suspect_threshold);
 
-    fprintf(fp, "# 损坏: 仅当发生IO错误或重测后仍超阈值时标记\n");
+    fprintf(fp, "# 损坏: 超过「严重」或发生 IO 错误时标记\n");
 
     fclose(fp);
 

@@ -154,6 +154,11 @@ int perform_sector_retest(unsigned long sector, const char* device_path,
         result->average_time = sum / result->retest_count;
     }
 
+    // 如果有重测结果，设置最终分类为正常（不是损坏）
+    if (result->retest_count > 0) {
+        result->final_category = TIME_CATEGORY_NORMAL;  // 重测成功表示不是真正的坏道
+    }
+
     if (!config->silent_mode) {
         printf("  重测完成: %d次测试, 平均时间 %d ms\n",
                result->retest_count, result->average_time);
