@@ -234,8 +234,10 @@ int main(int argc, char* argv[]) {
 
     int scan_result = scan_device(&opts);
 
-    // 打印使用建议
-    printf("\n\033[1;36m【使用建议】\033[0m\n");
+    if (scan_result != 1) {
+        // 打印使用建议
+        printf("\n\033[1;36m【使用建议】\033[0m\n");
+    }
 
     if (scan_result == 0) {         // 扫描正常结束
         printf("1. 查看扫描报告了解设备健康状况\n");
