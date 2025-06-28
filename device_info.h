@@ -1,14 +1,14 @@
+// device_info.h
 #ifndef DEVICE_INFO_H
 #define DEVICE_INFO_H
 
 #include <stddef.h> // For size_t
+#include <limits.h> // For PATH_MAX
 
-// Define PATH_MAX and MAX_BUFFER_LEN here as well, if they are not system-wide
 #ifndef PATH_MAX
 #define PATH_MAX 4096
 #endif
-#define MAX_BUFFER_LEN 128
-
+#define MAX_BUFFER_LEN 128 // Ensure this is defined appropriately
 #define MAX_FULL_PATH_LEN 4096
 
 // Device type enum
@@ -20,12 +20,25 @@ typedef enum {
     DEVICE_TYPE_USB_STORAGE
 } DeviceType;
 
+// Bus type enum
+typedef enum {
+    BUS_TYPE_UNKNOWN,
+    BUS_TYPE_ATA,   // Includes SATA and PATA (IDE)
+    BUS_TYPE_SCSI,  // Includes SAS
+    BUS_TYPE_USB,
+    BUS_TYPE_NVME,
+    BUS_TYPE_MMC,   // For SD cards, eMMC
+    BUS_TYPE_VIRTIO // For virtual machines
+} BusType;
+
+
 // DeviceInfo structure
 typedef struct {
     char dev_path[PATH_MAX];       // e.g., /dev/sda, /dev/nvme0n1p5
     char main_dev_name[MAX_BUFFER_LEN]; // e.g., sda, nvme0n1
 
-    DeviceType type;               // Detected device type
+    DeviceType type;               // Detected device type (HDD, SSD, USB)
+    BusType bus_type;              // Detected bus interface (ATA, USB, NVMe, etc.)
 
     // Common attributes
     unsigned long long total_sectors; // Total sectors (from sysfs)
@@ -41,18 +54,9 @@ typedef struct {
     // HDD specific
     char rotation_rate[MAX_BUFFER_LEN]; // RPM (from smartctl for HDD)
     
-    // Form Factor is not commonly available in sysfs in a clean way for all devices.
-    // It's often in smartctl output or needs specific parsing.
-    // For now, we omit it to keep sysfs parsing simpler.
+    // Add flags if needed to track if a field was found, e.g. for optional display.
+    // For this version, if a string field is empty, it means not found.
 
-    // Flags for data source/presence
-    int sysfs_model_found;
-    int sysfs_vendor_found;
-    int sysfs_serial_found;
-    int sysfs_firmware_found;
-
-    int smartctl_rotation_rate_found;
-    // Add more flags if other smartctl fields are parsed
 } DeviceInfo;
 
 // Function prototypes

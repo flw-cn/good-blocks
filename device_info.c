@@ -1,3 +1,4 @@
+// device_info.c
 #include "device_info.h"
 #include <stdio.h>
 #include <string.h>
@@ -6,6 +7,7 @@
 void init_device_info(DeviceInfo* info) {
     memset(info, 0, sizeof(DeviceInfo)); // Zero out the entire structure
     info->type = DEVICE_TYPE_UNKNOWN;
+    info->bus_type = BUS_TYPE_UNKNOWN; // Initialize new bus type
 }
 
 // Print DeviceInfo structure content
@@ -21,6 +23,19 @@ void print_device_info(const DeviceInfo* info) {
         case DEVICE_TYPE_UNKNOWN:
         default: printf("未知\n"); break;
     }
+
+    printf("接口类型: ");
+    switch (info->bus_type) {
+        case BUS_TYPE_ATA: printf("ATA (SATA/PATA)\n"); break;
+        case BUS_TYPE_SCSI: printf("SCSI (SAS/USB-SCSI)\n"); break; // USB devices often appear under SCSI subsystem
+        case BUS_TYPE_USB: printf("USB\n"); break;
+        case BUS_TYPE_NVME: printf("NVMe\n"); break;
+        case BUS_TYPE_MMC: printf("MMC/SD\n"); break;
+        case BUS_TYPE_VIRTIO: printf("VirtIO (Virtual)\n"); break;
+        case BUS_TYPE_UNKNOWN:
+        default: printf("未知\n"); break;
+    }
+
 
     if (info->total_sectors > 0 && info->capacity_gb > 0) {
         printf("总容量: %.2f GB\n", info->capacity_gb);
