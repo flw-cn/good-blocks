@@ -452,7 +452,6 @@ void populate_device_info_from_sysfs(DeviceInfo* info) {
     }
 }
 
-
 // Populates DeviceInfo from smartctl output string (for RPM, serial fallback, vendor override, and nominal capacity)
 void populate_device_info_from_smartctl_output(DeviceInfo* info, const char* smartctl_output) {
     if (!smartctl_output) return; // Defensive check
@@ -476,7 +475,7 @@ void populate_device_info_from_smartctl_output(DeviceInfo* info, const char* sma
 
     // Get Serial Number if sysfs or udevadm didn't provide it
     if (strlen(info->serial) == 0) {
-        char* serial_value = get_string_from_output(smartctl_output, 
+        char* serial_value = get_string_from_output(smartctl_output,
             "Serial Number:",        // Standard
             "Serial number:",        // Lowercase 'n'
             "Serial:",               // Generic fallback
@@ -560,68 +559,37 @@ void populate_device_info_from_smartctl_output(DeviceInfo* info, const char* sma
         }
     }
 
-    // Populate nominal_capacity_str from smartctl output
-    // Look for User Capacity (for ATA/SATA devices)
-    char* user_capacity_str = get_string_from_output(smartctl_output, "User Capacity:", NULL);
-    if (user_capacity_str) {
+    // Populate nominal_capacity_str from smartctl output (Optimized and without brackets)
+    char* raw_capacity_str = NULL;
+    char temp_nominal_capacity[MAX_NOMINAL_CAPACITY_LEN];
+    memset(temp_nominal_capacity, 0, sizeof(temp_nominal_capacity));
+
+    // Use get_string_from_output with multiple preferred keys
+    // Priority: User Capacity (SATA/ATA), then Total NVM Capacity (NVMe), then Namespace 1 Size/Capacity (NVMe fallback)
+    raw_capacity_str = get_string_from_output(smartctl_output,
+                                              "User Capacity:",
+                                              "Total NVM Capacity:",
+                                              "Namespace 1 Size/Capacity:",
+                                              NULL);
+
+    if (raw_capacity_str) {
         // Example: "16,000,900,661,248 bytes [16.0 TB]" -> extract "[16.0 TB]"
-        char* bracket_start = strchr(user_capacity_str, '[');
+        // Example: "1,024,209,543,168 [1.02 TB]" -> extract "[1.02 TB]"
+        char* bracket_start = strchr(raw_capacity_str, '[');
         if (bracket_start) {
             char* bracket_end = strchr(bracket_start, ']');
-            if (bracket_end) {
-                size_t len = bracket_end - bracket_start + 1; // Include brackets
-                if (len < sizeof(info->nominal_capacity_str)) {
-                    strncpy(info->nominal_capacity_str, bracket_start, len);
-                    info->nominal_capacity_str[len] = '\0';
-                } else { // Handle potential truncation if MAX_NOMINAL_CAPACITY_LEN is too small
-                    strncpy(info->nominal_capacity_str, bracket_start, sizeof(info->nominal_capacity_str) - 1);
-                    info->nominal_capacity_str[sizeof(info->nominal_capacity_str) - 1] = '\0';
-                }
+            if (bracket_end && (bracket_end > bracket_start + 1)) { // Ensure there's content between brackets
+                size_t len = bracket_end - bracket_start - 1; // Length WITHOUT brackets
+                strncpy(temp_nominal_capacity, bracket_start + 1, len); // Start copy AFTER '['
+                temp_nominal_capacity[len] = '\0'; // Null-terminate
             }
         }
-        free(user_capacity_str);
-    } else {
-        // If not User Capacity, look for Total NVM Capacity (for NVMe devices)
-        char* nvm_capacity_str = get_string_from_output(smartctl_output, "Total NVM Capacity:", NULL);
-        if (nvm_capacity_str) {
-             // Example: "1,024,209,543,168 [1.02 TB]" -> extract "[1.02 TB]"
-            char* bracket_start = strchr(nvm_capacity_str, '[');
-            if (bracket_start) {
-                char* bracket_end = strchr(bracket_start, ']');
-                if (bracket_end) {
-                    size_t len = bracket_end - bracket_start + 1; // Include brackets
-                     if (len < sizeof(info->nominal_capacity_str)) {
-                        strncpy(info->nominal_capacity_str, bracket_start, len);
-                        info->nominal_capacity_str[len] = '\0';
-                    } else {
-                        strncpy(info->nominal_capacity_str, bracket_start, sizeof(info->nominal_capacity_str) - 1);
-                        info->nominal_capacity_str[sizeof(info->nominal_capacity_str) - 1] = '\0';
-                    }
-                }
-            }
-            free(nvm_capacity_str);
-        } else {
-            // Fallback for NVMe Namespace Capacity if Total NVM Capacity isn't present
-            // (Note: This might grab the first Namespace's capacity, which is typically what's desired for a single disk)
-            char* namespace_capacity_str = get_string_from_output(smartctl_output, "Namespace 1 Size/Capacity:", NULL);
-            if (namespace_capacity_str) {
-                 // Example: "1,024,209,543,168 [1.02 TB]" -> extract "[1.02 TB]"
-                char* bracket_start = strchr(namespace_capacity_str, '[');
-                if (bracket_start) {
-                    char* bracket_end = strchr(bracket_start, ']');
-                    if (bracket_end) {
-                        size_t len = bracket_end - bracket_start + 1; // Include brackets
-                        if (len < sizeof(info->nominal_capacity_str)) {
-                            strncpy(info->nominal_capacity_str, bracket_start, len);
-                            info->nominal_capacity_str[len] = '\0';
-                        } else {
-                            strncpy(info->nominal_capacity_str, bracket_start, sizeof(info->nominal_capacity_str) - 1);
-                            info->nominal_capacity_str[sizeof(info->nominal_capacity_str) - 1] = '\0';
-                        }
-                    }
-                }
-                free(namespace_capacity_str);
-            }
+        free(raw_capacity_str);
+
+        // If we extracted something, copy it to info->nominal_capacity_str
+        if (strlen(temp_nominal_capacity) > 0) {
+            strncpy(info->nominal_capacity_str, temp_nominal_capacity, sizeof(info->nominal_capacity_str) - 1);
+            info->nominal_capacity_str[sizeof(info->nominal_capacity_str) - 1] = '\0';
         }
     }
 }
