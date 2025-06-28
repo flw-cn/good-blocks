@@ -264,13 +264,34 @@ void populate_device_info_from_udevadm(DeviceInfo* info) {
                 strncpy(info->serial, value, sizeof(info->serial)-1);
             } else if (strcmp(key, "ID_REVISION") == 0) {
                 strncpy(info->firmware_rev, value, sizeof(info->firmware_rev)-1);
+            } else if (strcmp(key, "DEVPATH") == 0) {
+                // Parse DEVPATH for bus type if ID_BUS is not strong enough
+                // Example: /devices/pci0000:00/0000:00:17.0/ata2/host1/target1:0:0/1:0:0:0/block/sda
+                if (info->bus_type == BUS_TYPE_UNKNOWN) {
+                    if (strstr(value, "/ata") != NULL) {
+                        info->bus_type = BUS_TYPE_ATA;
+                    } else if (strstr(value, "/usb") != NULL || strstr(value, "/host") != NULL) { // host usually means scsi_host for USB drives too
+                        // check if the subsystem is "usb" or "scsi" (for USB-SCSI bridge devices)
+                        char sysfs_subsystem_path[MAX_FULL_PATH_LEN];
+                        snprintf(sysfs_subsystem_path, sizeof(sysfs_subsystem_path), "/sys/block/%s/device/subsystem", info->main_dev_name);
+                        char* subsystem_val = read_sysfs_attribute(sysfs_subsystem_path);
+                        if (subsystem_val) {
+                            if (strcmp(subsystem_val, "usb") == 0) info->bus_type = BUS_TYPE_USB;
+                            else if (strcmp(subsystem_val, "scsi") == 0) info->bus_type = BUS_TYPE_SCSI; // Covers USB-SCSI bridges
+                            free(subsystem_val);
+                        }
+                    } else if (strstr(value, "/nvme") != NULL) {
+                        info->bus_type = BUS_TYPE_NVME;
+                    } else if (strstr(value, "/mmc") != NULL) {
+                        info->bus_type = BUS_TYPE_MMC;
+                    }
+                }
             }
         }
     }
     pclose(fp);
 
-    // Fallback for ID_BUS if not explicitly found by udevadm
-    // This is less common but can happen on some systems or configurations.
+    // Final fallback for ID_BUS if not explicitly found by udevadm properties, try sysfs directly
     if (info->bus_type == BUS_TYPE_UNKNOWN) {
         char sysfs_subsystem_path[MAX_FULL_PATH_LEN];
         snprintf(sysfs_subsystem_path, sizeof(sysfs_subsystem_path), "/sys/block/%s/device/subsystem", info->main_dev_name);
@@ -279,8 +300,6 @@ void populate_device_info_from_udevadm(DeviceInfo* info) {
             if (strcmp(subsystem_value, "ata") == 0) info->bus_type = BUS_TYPE_ATA;
             else if (strcmp(subsystem_value, "scsi") == 0) info->bus_type = BUS_TYPE_SCSI;
             else if (strcmp(subsystem_value, "usb") == 0) info->bus_type = BUS_TYPE_USB;
-            // No direct NVMe subsystem, it's typically "pci" and then distinguished by path or ID_BUS=nvme
-            // if (strcmp(subsystem_value, "nvme") == 0) info->bus_type = BUS_TYPE_NVME; // Unlikely to be "nvme"
             free(subsystem_value);
         }
     }
@@ -413,7 +432,7 @@ void populate_device_info_from_sysfs(DeviceInfo* info) {
 }
 
 
-// Populates DeviceInfo from smartctl output string (for RPM and serial fallback, and now vendor fallback)
+// Populates DeviceInfo from smartctl output string (for RPM and serial fallback, and now vendor/bus type fallback)
 void populate_device_info_from_smartctl_output(DeviceInfo* info, const char* smartctl_output) {
     // Get RPM if it's an HDD
     if (info->type == DEVICE_TYPE_HDD && info->rotation_rate_rpm == 0) { // Check if RPM is not yet populated
@@ -449,21 +468,24 @@ void populate_device_info_from_smartctl_output(DeviceInfo* info, const char* sma
     if (strlen(info->vendor) == 0) {
         char* model_family = get_string_from_output(smartctl_output, "Model Family:", NULL);
         if (model_family) {
-            // Extract the first word or words until a common model separator (e.g., " ", "-")
-            char *space_pos = strchr(model_family, ' ');
-            if (space_pos) { // "Western Digital Ultrastar DC HC550" -> "Western Digital"
-                char *second_space_pos = strchr(space_pos + 1, ' ');
-                if (second_space_pos && (second_space_pos - model_family) < sizeof(info->vendor)) {
-                     // Check if "Western Digital" fits
-                    size_t vendor_len = second_space_pos - model_family;
-                    strncpy(info->vendor, model_family, vendor_len);
-                    info->vendor[vendor_len] = '\0';
-                } else { // Just "Western" if only one word is needed or second word doesn't fit
-                    size_t vendor_len = space_pos - model_family;
+            // "Western Digital Ultrastar DC HC550" -> "Western Digital"
+            char *space_pos1 = strchr(model_family, ' ');
+            if (space_pos1) {
+                char *space_pos2 = strchr(space_pos1 + 1, ' ');
+                if (space_pos2) { // Found two spaces, try to get "Western Digital"
+                    size_t vendor_len = space_pos2 - model_family;
+                    if (vendor_len < sizeof(info->vendor)) {
+                        strncpy(info->vendor, model_family, vendor_len);
+                        info->vendor[vendor_len] = '\0';
+                    } else { // Fallback if it's too long, just copy what fits
+                        strncpy(info->vendor, model_family, sizeof(info->vendor)-1);
+                    }
+                } else { // Only one space, take the first word as vendor
+                    size_t vendor_len = space_pos1 - model_family;
                     strncpy(info->vendor, model_family, vendor_len);
                     info->vendor[vendor_len] = '\0';
                 }
-            } else { // "Seagate" or similar single word
+            } else { // No spaces, whole thing is the vendor/model family
                 strncpy(info->vendor, model_family, sizeof(info->vendor)-1);
             }
             free(model_family);
@@ -480,6 +502,27 @@ void populate_device_info_from_smartctl_output(DeviceInfo* info, const char* sma
                     strncpy(info->vendor, device_model, sizeof(info->vendor)-1);
                 }
                 free(device_model);
+            }
+        }
+    }
+
+    // New: Get Bus Type from smartctl "SATA Version is:" if it's still unknown
+    if (info->bus_type == BUS_TYPE_UNKNOWN) {
+        char* sata_version_str = get_string_from_output(smartctl_output, "SATA Version is:", NULL);
+        if (sata_version_str) {
+            if (strstr(sata_version_str, "SATA") != NULL) {
+                info->bus_type = BUS_TYPE_ATA; // SATA is part of ATA
+            }
+            free(sata_version_str);
+        }
+        // Also check for "ATA Version is:"
+        if (info->bus_type == BUS_TYPE_UNKNOWN) {
+            char* ata_version_str = get_string_from_output(smartctl_output, "ATA Version is:", NULL);
+            if (ata_version_str) {
+                if (strstr(ata_version_str, "ATA") != NULL) {
+                    info->bus_type = BUS_TYPE_ATA;
+                }
+                free(ata_version_str);
             }
         }
     }
