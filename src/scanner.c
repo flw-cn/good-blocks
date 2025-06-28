@@ -36,9 +36,6 @@ static int perform_sector_read(int fd, unsigned long sector, size_t block_size,
 static int handle_suspect_block(unsigned long sector,
                                const ScanOptions* opts, FILE* log_file,
                                const char* device_path);
-static void generate_sample_positions(unsigned long start_sector, unsigned long end_sector,
-                                     double sample_ratio, int random_sampling,
-                                     unsigned long** positions, unsigned long* count);
 static void print_final_summary(const ScanProgress* progress);
 static void log_sector_result(FILE* log_file, unsigned long sector, int read_time_ms,
                              TimeCategoryType category, const char* notes);
@@ -491,50 +488,6 @@ static int handle_suspect_block(unsigned long sector,
 }
 
 /**
- * 生成采样位置
- */
-static void generate_sample_positions(unsigned long start_sector, unsigned long end_sector,
-                                     double sample_ratio, int random_sampling,
-                                     unsigned long** positions, unsigned long* count) {
-    unsigned long total_sectors = end_sector - start_sector;
-    *count = (unsigned long)(total_sectors * sample_ratio);
-
-    if (*count == 0) {
-        *count = 1;  // 至少采样一个扇区
-    }
-
-    *positions = malloc(*count * sizeof(unsigned long));
-    if (!*positions) {
-        fprintf(stderr, "错误: 内存分配失败\n");
-        *count = 0;
-        return;
-    }
-
-    if (random_sampling) {
-        // 随机采样
-        srand(time(NULL));
-        for (unsigned long i = 0; i < *count; i++) {
-            (*positions)[i] = start_sector + (rand() % total_sectors);
-        }
-
-        // 排序以提高访问效率
-        qsort(*positions, *count, sizeof(unsigned long),
-              (int(*)(const void*, const void*))strcmp);
-
-        printf("\033[36m【采样生成】\033[m生成 %lu 个随机采样位置\n", *count);
-    } else {
-        // 等间距采样
-        double step = (double)total_sectors / *count;
-        for (unsigned long i = 0; i < *count; i++) {
-            (*positions)[i] = start_sector + (unsigned long)(i * step);
-        }
-
-        printf("\033[36m【采样生成】\033[m生成 %lu 个等间距采样位置 (间隔: %.1f)\n",
-               *count, step);
-    }
-}
-
-/**
  * 记录扇区结果到日志文件
  */
 static void log_sector_result(FILE* log_file, unsigned long sector, int read_time_ms,
@@ -657,19 +610,26 @@ int scan_device(const ScanOptions* opts) {
         return -1;
     }
 
-    // 生成采样位置（如果需要）
-    unsigned long* sample_positions = NULL;
-    unsigned long sample_count = 0;
+    // 计算采样参数
+    unsigned long total_sectors = end_sector - start_sector;
+    unsigned long sample_count;
+    double step_size;
 
     if (opts->sample_ratio < 1.0) {
-        generate_sample_positions(start_sector, end_sector, opts->sample_ratio,
-                                 opts->random_sampling, &sample_positions, &sample_count);
+        sample_count = (unsigned long)(total_sectors * opts->sample_ratio);
         if (sample_count == 0) {
-            fprintf(stderr, "错误: 采样位置生成失败\n");
-            return -1;
+            sample_count = 1;  // 至少采样一个扇区
         }
+        step_size = (double)total_sectors / sample_count;
+
+        printf("\033[36m【采样模式】\033[m %.2f%% 采样 (%lu 个扇区，%s采样)\n",
+               opts->sample_ratio * 100, sample_count,
+               opts->random_sampling ? "随机" : "等间距");
+        printf("\033[36m【采样间隔】\033[m %.1f 扇区\n", step_size);
     } else {
-        sample_count = end_sector - start_sector;
+        sample_count = total_sectors;
+        step_size = 1.0;
+        printf("\033[36m【扫描模式】\033[m 全量扫描\n");
     }
 
     // 打印扫描头部信息
@@ -678,7 +638,6 @@ int scan_device(const ScanOptions* opts) {
     // 打开设备进行扫描
     int fd = open_device_for_scan(opts->device);
     if (fd == -1) {
-        if (sample_positions) free(sample_positions);
         return -1;
     }
 
@@ -701,7 +660,6 @@ int scan_device(const ScanOptions* opts) {
         fprintf(stderr, "错误: 内存分配失败\n");
         close(fd);
         if (log_file) fclose(log_file);
-        if (sample_positions) free(sample_positions);
         return -1;
     }
 
@@ -713,13 +671,34 @@ int scan_device(const ScanOptions* opts) {
 
     printf("\n开始扫描...\n");
 
+    // 初始化随机数种子（用于随机采样）
+    if (opts->sample_ratio < 1.0 && opts->random_sampling) {
+        srand(time(NULL));
+    }
+
     // 主扫描循环
     for (unsigned long i = 0; i < sample_count && !g_scan_interrupted; i++) {
         unsigned long current_sector;
 
-        if (sample_positions) {
-            current_sector = sample_positions[i];
+        if (opts->sample_ratio < 1.0) {
+            // 采样模式：计算采样位置
+            double base_position = i * step_size;
+
+            if (opts->random_sampling) {
+                // 随机采样：在固定间隔基础上添加随机偏移
+                double max_offset = step_size * 0.8;  // 最大偏移为间隔的80%
+                double random_offset = (rand() / (double)RAND_MAX) * max_offset - max_offset / 2;
+                current_sector = start_sector + (unsigned long)(base_position + random_offset);
+
+                // 确保不超出范围
+                if (current_sector < start_sector) current_sector = start_sector;
+                if (current_sector >= end_sector) current_sector = end_sector - 1;
+            } else {
+                // 等间距采样
+                current_sector = start_sector + (unsigned long)base_position;
+            }
         } else {
+            // 全量扫描
             current_sector = start_sector + i;
         }
 
@@ -773,7 +752,6 @@ int scan_device(const ScanOptions* opts) {
     free(buffer);
     close(fd);
     if (log_file) fclose(log_file);
-    if (sample_positions) free(sample_positions);
 
     // 完成进度显示，将光标移到末尾
     finish_progress_display();
