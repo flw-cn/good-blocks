@@ -78,23 +78,23 @@ static int get_device_geometry(const char *device, DeviceGeometry *geometry) {
         return -1;
     }
 
-    // 获取逻辑扇区大小
+    // 获取逻辑扇区大小（操作系统看到的扇区大小，通常512字节）
     geometry->sector_size = 512;
     if (ioctl(fd, BLKSSZGET, &geometry->sector_size) == -1) {
-        fprintf(stderr, "警告: 无法获取逻辑扇区大小，使用默认值 %d\n", geometry->sector_size);
+        fprintf(stderr, "警告: 无法获取逻辑扇区大小，使用默认值 %d 字节\n", geometry->sector_size);
     }
 
-    // 获取物理扇区大小
+    // 获取物理扇区大小（硬盘真实的最小存储单元，现代SATA硬盘通常4096字节）
     unsigned int physical_sector_size = 512;
     if (ioctl(fd, BLKPBSZGET, &physical_sector_size) == -1) {
         fprintf(stderr, "警告: 无法获取物理扇区大小，假设与逻辑扇区大小相同\n");
         physical_sector_size = geometry->sector_size;
     }
 
-    printf("\033[35m【设备几何】\033[m逻辑扇区大小: %d 字节\n", geometry->sector_size);
-    printf("\033[35m【设备几何】\033[m物理扇区大小: %d 字节\n", physical_sector_size);
+    printf("\033[35m【设备几何】\033[m逻辑扇区大小: %d 字节 (操作系统视角)\n", geometry->sector_size);
+    printf("\033[35m【设备几何】\033[m物理扇区大小: %d 字节 (硬盘真实单元)\n", physical_sector_size);
 
-    // 获取总扇区数 (以逻辑扇区为单位)
+    // 获取总扇区数 (BLKGETSIZE返回的总是以512字节为基准的扇区数)
     geometry->total_sectors = 0;
     if (ioctl(fd, BLKGETSIZE, &geometry->total_sectors) == -1) {
         fprintf(stderr, "错误: 无法获取总扇区数: %s\n", strerror(errno));
@@ -102,15 +102,15 @@ static int get_device_geometry(const char *device, DeviceGeometry *geometry) {
         return -1;
     }
 
-    // BLKGETSIZE 返回的扇区数总是以 512 字节为基准
+    // BLKGETSIZE 返回的扇区数总是以 512 字节为基准，无论实际逻辑扇区大小
     double total_gb = (double)geometry->total_sectors * 512 / (1024*1024*1024);
     printf("\033[35m【设备几何】\033[m设备总扇区数: %lu (以 512 字节计，%.2f GB)\n",
            geometry->total_sectors, total_gb);
 
-    // 如果逻辑扇区大小不是 512，显示换算后的扇区数
+    // 如果逻辑扇区大小不是 512，显示换算后的实际逻辑扇区数
     if (geometry->sector_size != 512) {
         unsigned long logical_sectors = geometry->total_sectors * 512 / geometry->sector_size;
-        printf("\033[35m【设备几何】\033[m逻辑扇区数: %lu (以 %d 字节计)\n",
+        printf("\033[35m【设备几何】\033[m实际逻辑扇区数: %lu (以 %d 字节计)\n",
                logical_sectors, geometry->sector_size);
     }
 
@@ -137,14 +137,14 @@ static void print_scan_header(const ScanOptions* opts,
     printf("\033[1;34m═══════════════════════════════════════════════════════════════\033[0m\n");
 
     printf("\033[36m扫描设备:\033[0m %s\n", opts->device);
-    printf("\033[36m扫描范围:\033[0m 扇区 %lu - %lu\n", start_sector, end_sector);
-    printf("\033[36m扫描扇区数:\033[0m %lu\n", end_sector - start_sector);
-    printf("\033[36m块大小:\033[0m %ld 字节\n", opts->block_size);
+    printf("\033[36m扫描范围:\033[0m 逻辑扇区 %lu - %lu (按 %d 字节/扇区)\n", start_sector, end_sector, geometry->sector_size);
+    printf("\033[36m扫描扇区数:\033[0m %lu 个逻辑扇区\n", end_sector - start_sector);
+    printf("\033[36m块大小:\033[0m %ld 字节 (每次读取)\n", opts->block_size);
 
     if (opts->sample_ratio < 1.0) {
         unsigned long total_range = end_sector - start_sector;
         unsigned long sample_count = (unsigned long)(total_range * opts->sample_ratio);
-        printf("\033[36m采样模式:\033[0m %.2f%% (%lu 个扇区，%s)\n",
+        printf("\033[36m采样模式:\033[0m %.2f%% (%lu 个逻辑扇区，%s)\n",
                opts->sample_ratio * 100, sample_count,
                opts->random_sampling ? "随机采样" : "等间距采样");
     } else {
@@ -182,7 +182,7 @@ static void update_progress(ScanProgress* progress, unsigned long current_sector
     progress->last_read_time = read_time_ms;
     progress->last_category = category;
 
-    // 更新速度统计
+    // 更新速度统计 (基于逻辑扇区)
     struct timeval now;
     gettimeofday(&now, NULL);
 
@@ -190,6 +190,7 @@ static void update_progress(ScanProgress* progress, unsigned long current_sector
                     (now.tv_usec - progress->start_time.tv_usec) / 1000000.0;
 
     if (elapsed > 0) {
+        // sectors_per_second 是逻辑扇区/秒
         progress->sectors_per_second = progress->sectors_scanned / elapsed;
 
         // 估算剩余时间
@@ -321,7 +322,7 @@ static void print_full_progress_display(const ScanProgress* progress, const Time
     }
     printf("] %5.1f%% ", progress->progress_percent);
 
-    // 计算并显示字节速度
+    // 计算并显示字节速度 (基于逻辑扇区大小转换为字节/秒)
     if (progress->sectors_per_second > 0 && geometry) {
         double bytes_per_second = progress->sectors_per_second * geometry->sector_size;
         if (bytes_per_second >= 1024*1024*1024) {
@@ -404,11 +405,13 @@ static void finish_progress_display(void) {
 }
 
 /**
- * 执行扇区读取
+ * 执行逻辑扇区读取
+ * @param sector 逻辑扇区号
+ * @param block_size 每次读取的字节数 (通常是逻辑扇区大小的倍数)
  */
 static int perform_sector_read(int fd, unsigned long sector, size_t block_size,
                               char* buffer, DeviceGeometry* geometry) {
-    // 计算字节偏移量
+    // 计算字节偏移量 (逻辑扇区号 × 逻辑扇区大小)
     off_t offset = (off_t)sector * geometry->sector_size;
 
     // 定位到指定位置
@@ -530,7 +533,9 @@ static void print_final_summary(const ScanProgress* progress) {
     printf("\033[36m扫描进度:\033[0m %.2f%%\n", progress->progress_percent);
 
     if (progress->sectors_per_second > 0) {
-        printf("\033[36m平均扫描速度:\033[0m %.1f 扇区/秒\n", progress->sectors_per_second);
+        printf("\033[36m平均扫描速度:\033[0m %.1f 逻辑扇区/秒 (%.1f MB/s)\n",
+               progress->sectors_per_second,
+               progress->sectors_per_second * geometry.sector_size / (1024*1024));
     }
 
     if (g_scan_interrupted) {
@@ -702,7 +707,7 @@ int scan_device(const ScanOptions* opts) {
             current_sector = start_sector + i;
         }
 
-        // 执行扇区读取
+        // 执行逻辑扇区读取
         int read_time = perform_sector_read(fd, current_sector, opts->block_size,
                                           buffer, &geometry);
 

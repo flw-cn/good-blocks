@@ -234,24 +234,10 @@ int main(int argc, char* argv[]) {
 
     int scan_result = scan_device(&opts);
 
-    // 处理扫描结果
-    printf("\n");
-    switch (scan_result) {
-        case 0:
-            printf("\033[1;32m【扫描完成】\033[m磁盘扫描正常完成\n");
-            break;
-        case 1:
-            printf("\033[1;33m【扫描中断】\033[m扫描被用户中断\n");
-            break;
-        default:
-            printf("\033[1;31m【扫描失败】\033[m扫描过程中发生错误\n");
-            return EXIT_FAILURE;
-    }
-
     // 打印使用建议
     printf("\n\033[1;36m【使用建议】\033[0m\n");
 
-    if (scan_result == 0) {
+    if (scan_result == 0) {         // 扫描正常结束
         printf("1. 查看扫描报告了解设备健康状况\n");
         printf("2. 如果发现性能问题，建议:\n");
         printf("   - 对问题区域进行更详细的扫描\n");
@@ -265,7 +251,7 @@ int main(int argc, char* argv[]) {
             printf("3. SSD 建议关注写入寿命和性能下降趋势\n");
             printf("4. 避免频繁的全盘扫描以延长 SSD 寿命\n");
         }
-    } else {
+    } else if (scan_result != 1) {  // 扫描异常中断（1 为用户主动中断）
         printf("1. 扫描未完成，建议稍后重试\n");
         printf("2. 如果持续失败，检查:\n");
         printf("   - 设备是否正常连接\n");
